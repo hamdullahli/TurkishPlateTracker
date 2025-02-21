@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Live Camera Feed</h5>
+                </div>
+                <div class="card-body">
+                    <div id="camera-feed" class="camera-container">
+                        <div class="mock-camera">
+                            <div class="camera-overlay">
+                                <div id="detection-box"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">System Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="status-indicator online">
+                        <span class="status-dot"></span>
+                        System Online
+                    </div>
+                    <div class="status-indicator processing">
+                        <span class="status-dot"></span>
+                        Processing Active
+                    </div>
+                </div>
+            </div>
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Latest Detections</h5>
+                </div>
+                <div class="card-body">
+                    <div id="latest-plates" class="latest-plates-container">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Detection History</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="detectionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

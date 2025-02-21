@@ -1,0 +1,140 @@
+:root {
+    --primary: #1A1A1A;
+    --secondary: #0066CC;
+    --accent: #FF4D4D;
+    --background: #F5F5F5;
+    --text: #333333;
+}
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: var(--background);
+    color: var(--text);
+}
+
+/* Login styles */
+.login-container {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-box {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 400px;
+}
+
+/* Navbar styles */
+.navbar {
+    background-color: var(--primary);
+}
+
+/* Dashboard styles */
+.dashboard-container {
+    padding: 20px;
+}
+
+.card {
+    background: white;
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.card-header {
+    background-color: white;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    padding: 1rem;
+}
+
+.camera-container {
+    aspect-ratio: 16/9;
+    background-color: var(--primary);
+    position: relative;
+    overflow: hidden;
+    border-radius: 4px;
+}
+
+.mock-camera {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, #1a1a1a 25%, #2a2a2a 25%, #2a2a2a 50%, #1a1a1a 50%, #1a1a1a 75%, #2a2a2a 75%, #2a2a2a);
+    background-size: 20px 20px;
+    animation: camera-noise 0.5s infinite linear;
+}
+
+@keyframes camera-noise {
+    0% { background-position: 0 0; }
+    100% { background-position: 20px 20px; }
+}
+
+.camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#detection-box {
+    position: absolute;
+    border: 2px solid var(--accent);
+    background-color: rgba(255,77,77,0.2);
+    display: none;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.status-indicator.online .status-dot {
+    background-color: #28a745;
+}
+
+.status-indicator.processing .status-dot {
+    background-color: var(--secondary);
+}
+
+.latest-plates-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.plate-entry {
+    padding: 10px;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.plate-entry:last-child {
+    border-bottom: none;
+}
+
+.plate-number {
+    font-size: 1.2em;
+    font-weight: 500;
+}
+
+.plate-timestamp {
+    font-size: 0.8em;
+    color: #666;
+}
+
+.plate-confidence {
+    font-size: 0.9em;
+    color: var(--secondary);
+}
