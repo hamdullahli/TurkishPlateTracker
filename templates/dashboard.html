@@ -9,20 +9,18 @@
                     <h5 class="card-title mb-0">Canlı Kamera Görüntüsü</h5>
                 </div>
                 <div class="card-body">
-                    <img id="cameraStream" src="" class="img-fluid" alt="Kamera Görüntüsü">
+                    <div id="camera-feed" class="camera-container">
+                        <div class="mock-camera">
+                            <div class="camera-overlay">
+                                <div id="detection-box"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Son Okunan Plakalar</h5>
-                </div>
-                <div class="card-body">
-                    <div id="latestPlates"></div>
-                </div>
-            </div>
-            <div class="card mt-3">
                 <div class="card-header">
                     <h5 class="card-title mb-0">Sistem Durumu</h5>
                 </div>
@@ -34,6 +32,15 @@
                     <div class="status-indicator processing">
                         <span class="status-dot"></span>
                         Plaka Tarama Aktif
+                    </div>
+                </div>
+            </div>
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Son Algılanan Plakalar</h5>
+                </div>
+                <div class="card-body">
+                    <div id="latest-plates" class="latest-plates-container">
                     </div>
                 </div>
             </div>

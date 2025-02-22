@@ -1,190 +1,159 @@
+import random
+import string
 import cv2
 import numpy as np
 import easyocr
 import requests
 import logging
 import time
-from datetime import datetime
 import sys
+from datetime import datetime
 
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PlateDetector:
-    def __init__(self, api_url):
-        """Initialize the plate detector"""
-        self.reader = easyocr.Reader(['tr'])
+    def __init__(self, api_url, username, password):
+        """
+        Initialize the plate detector
+        api_url: URL of the main system's API
+        username: Username for API authentication
+        password: Password for API authentication
+        """
+        self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
         self.api_url = api_url
-        self.plate_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml')
-        logger.info("Plate detector initialized successfully")
+        self.auth = (username, password)
 
     def preprocess_image(self, frame):
-        """Görüntü ön işleme"""
+        """
+        Preprocess the image for better plate detection
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Apply bilateral filter to remove noise while keeping edges sharp
+        bilateral = cv2.bilateralFilter(gray, 11, 17, 17)
+
+        # Edge detection
+        edged = cv2.Canny(bilateral, 30, 200)
+
+        return edged
+
+    def find_plate_contours(self, processed_img):
+        """
+        Find contours that might be license plates
+        """
+        # Find contours
+        contours, _ = cv2.findContours(processed_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Filter contours based on area and aspect ratio
+        possible_plates = []
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+            x, y, w, h = cv2.boundingRect(contour)
+            aspect_ratio = float(w) / h
+
+            # Turkish license plates typically have an aspect ratio between 2 and 5
+            if 2.0 <= aspect_ratio <= 5.0 and w > 100:
+                possible_plates.append((x, y, w, h))
+
+        return possible_plates
+
+    def read_plate(self, img, roi):
+        """
+        Use EasyOCR to read text from the plate region
+        """
+        x, y, w, h = roi
+        plate_img = img[y:y+h, x:x+w]
+
+        # Use EasyOCR to read the text
+        results = self.reader.readtext(plate_img)
+
+        if not results:
+            return None, 0
+
+        # Get the text with highest confidence
+        text = ""
+        confidence = 0
+        for (_, plate_text, conf) in results:
+            # Remove spaces and convert to uppercase
+            cleaned_text = "".join(plate_text.split()).upper()
+            if conf > confidence:
+                text = cleaned_text
+                confidence = conf
+
+        return text, confidence
+
+    def send_plate_to_server(self, plate_number, confidence):
+        """
+        Send detected plate to the main system
+        """
         try:
-            # Görüntü boyutunu kontrol et ve gerekirse yeniden boyutlandır
-            if frame.shape[1] > 1000:
-                scale = 1000 / frame.shape[1]
-                frame = cv2.resize(frame, None, fx=scale, fy=scale)
-
-            # Gürültü azaltma ve keskinleştirme
-            denoised = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
-
-            # Keskinleştirme filtresi
-            kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            sharpened = cv2.filter2D(denoised, -1, kernel)
-
-            # Gri tonlamaya çevirme
-            gray = cv2.cvtColor(sharpened, cv2.COLOR_BGR2GRAY)
-
-            # Kontrast iyileştirme
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(gray)
-
-            return enhanced
+            response = requests.post(
+                f"{self.api_url}/api/plates",
+                json={"plate_number": plate_number, "confidence": confidence * 100},
+                auth=self.auth
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"Plate {plate_number} sent to server: {result}")
+            return result
         except Exception as e:
-            logger.error(f"Error in preprocess_image: {e}")
+            logger.error(f"Error sending plate to server: {e}")
             return None
 
-    def detect_plate(self, frame):
-        """Plaka tespiti ve OCR"""
-        try:
-            # Görüntü ön işleme
-            processed = self.preprocess_image(frame)
-            if processed is None:
-                return frame, []
-
-            # Plaka tespiti için cascade classifier
-            plates = self.plate_cascade.detectMultiScale(
-                processed,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=(60, 20),
-                maxSize=(300, 100)
-            )
-
-            detected_plates = []
-            for (x, y, w, h) in plates:
-                logger.debug(f"Found potential plate at: x={x}, y={y}, w={w}, h={h}")
-
-                # ROI'yi genişlet
-                padding = 10
-                roi_y1 = max(y - padding, 0)
-                roi_y2 = min(y + h + padding, frame.shape[0])
-                roi_x1 = max(x - padding, 0)
-                roi_x2 = min(x + w + padding, frame.shape[1])
-
-                roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
-                if roi.size == 0:
-                    continue
-
-                # ROI ön işleme
-                roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                _, roi_thresh = cv2.threshold(roi_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-                # OCR işlemi
-                results = self.reader.readtext(roi_thresh)
-                if results:
-                    best_result = max(results, key=lambda x: x[2])
-                    text = best_result[1]
-                    conf = best_result[2] * 100
-
-                    # Plaka formatı düzeltme
-                    text = text.upper().replace('İ', 'I').replace('Ğ', 'G').replace('Ç', 'C')
-                    text = ''.join(c for c in text if c.isalnum())
-
-                    if len(text) >= 5 and any(c.isdigit() for c in text):
-                        logger.info(f"Valid plate detected: {text} (Confidence: {conf:.2f}%)")
-
-                        detected_plates.append({
-                            'text': text,
-                            'confidence': conf,
-                            'bbox': (x, y, w, h)
-                        })
-
-                        # Görüntü üzerine çizim
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                        cv2.putText(frame, f"{text} ({conf:.1f}%)", 
-                                  (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                  0.5, (0, 255, 0), 2)
-
-            return frame, detected_plates
-
-        except Exception as e:
-            logger.error(f"Error in detect_plate: {e}")
-            return frame, []
-
     def process_rtsp_stream(self, rtsp_url):
-        """RTSP akışını işle"""
-        logger.info(f"Connecting to RTSP stream: {rtsp_url}")
+        """
+        Process RTSP stream and detect plates
+        """
+        cap = cv2.VideoCapture(rtsp_url)
+        if not cap.isOpened():
+            logger.error("Error: Could not open RTSP stream.")
+            return
+
+        logger.info("Started processing RTSP stream")
 
         try:
-            cap = cv2.VideoCapture(rtsp_url)
-            if not cap.isOpened():
-                logger.error("Failed to open RTSP stream")
-                return
-
-            # Kamera ayarlarını optimize et
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Buffer size'ı küçült
-
-            last_detection_time = {}  # Aynı plakayı tekrar göndermemek için
-
             while True:
                 ret, frame = cap.read()
                 if not ret:
-                    logger.error("Failed to read frame from stream")
+                    logger.error("Error reading frame from stream")
                     break
 
-                processed_frame, detected_plates = self.detect_plate(frame)
+                # Process frame
+                processed = self.preprocess_image(frame)
+                possible_plates = self.find_plate_contours(processed)
 
-                current_time = time.time()
-                for plate in detected_plates:
-                    # Aynı plakayı 5 saniyede bir gönder
-                    if (plate['text'] not in last_detection_time or 
-                        current_time - last_detection_time[plate['text']] > 5):
+                for plate_roi in possible_plates:
+                    plate_text, confidence = self.read_plate(frame, plate_roi)
 
-                        try:
-                            response = requests.post(
-                                f"{self.api_url}/api/plates",
-                                json={
-                                    "plate_number": plate['text'],
-                                    "confidence": plate['confidence']
-                                }
-                            )
-                            if response.ok:
-                                last_detection_time[plate['text']] = current_time
-                                logger.info(f"Plate {plate['text']} sent to server successfully")
-                        except Exception as e:
-                            logger.error(f"Failed to send plate to server: {e}")
+                    if plate_text and confidence > 0.6:  # Minimum confidence threshold
+                        logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
+                        self.send_plate_to_server(plate_text, confidence)
 
-                # Frame'i JPEG formatına dönüştür ve gönder
-                ret, buffer = cv2.imencode('.jpg', processed_frame)
-                if ret:
-                    frame_bytes = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                # Add a small delay to prevent excessive CPU usage
+                time.sleep(0.1)
 
-                time.sleep(0.1)  # CPU kullanımını azalt
-
-        except Exception as e:
-            logger.error(f"Error in process_rtsp_stream: {e}")
+        except KeyboardInterrupt:
+            logger.info("Stopping plate detection...")
         finally:
-            if 'cap' in locals():
-                cap.release()
+            cap.release()
 
 def main():
     # Configuration
-    API_URL = "http://0.0.0.0:5000"
+    API_URL = "http://0.0.0.0:5000"  # Updated to use 0.0.0.0 instead of localhost
+    USERNAME = "admin"  # API username
+    PASSWORD = "admin123"  # API password
 
     # Initialize plate detector
-    detector = PlateDetector(API_URL)
+    detector = PlateDetector(API_URL, USERNAME, PASSWORD)
 
     # Check command line arguments for video file or RTSP URL
     if len(sys.argv) > 1:
         source = sys.argv[1]
         if source.startswith('rtsp://'):
             logger.info(f"Processing RTSP stream: {source}")
-            for frame in detector.process_rtsp_stream(source):
-                pass
+            detector.process_rtsp_stream(source)
         else:
             logger.info(f"Processing video file: {source}")
             try:
@@ -201,17 +170,22 @@ def main():
                         logger.info("Reached end of video file")
                         break
 
-                    processed_frame, detected_plates = detector.detect_plate(frame)
+                    processed = detector.preprocess_image(frame)
+                    possible_plates = detector.find_plate_contours(processed)
 
-                    for plate in detected_plates:
-                        logger.info(f"Detected plate: {plate['text']} (Confidence: {plate['confidence']:.2f})")
-                        try:
-                            result = detector.send_plate_to_server(plate['text'], plate['confidence'])
-                            logger.info(f"Server response: {result}")
-                        except Exception as e:
-                            logger.error(f"Failed to send plate to server: {e}")
+                    logger.debug(f"Found {len(possible_plates)} possible plate regions")
 
-                    time.sleep(0.1)  # CPU kullanımını azalt
+                    for plate_roi in possible_plates:
+                        plate_text, confidence = detector.read_plate(frame, plate_roi)
+                        if plate_text and confidence > 0.6:
+                            logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
+                            try:
+                                result = detector.send_plate_to_server(plate_text, confidence)
+                                logger.info(f"Server response: {result}")
+                            except Exception as e:
+                                logger.error(f"Failed to send plate to server: {e}")
+
+                    time.sleep(0.1)
 
             except KeyboardInterrupt:
                 logger.info("Stopping plate detection...")

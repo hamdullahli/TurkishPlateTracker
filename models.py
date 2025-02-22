@@ -1,13 +1,6 @@
-
 from datetime import datetime
-from flask_sqlalchemy import SQLAlchemy
+from app import db
 from flask_login import UserMixin
-from sqlalchemy.orm import DeclarativeBase
-
-class Base(DeclarativeBase):
-    pass
-
-db = SQLAlchemy(model_class=Base)
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

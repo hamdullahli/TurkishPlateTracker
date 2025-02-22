@@ -1,185 +1,26 @@
 import os
 import logging
-import cv2
-import numpy as np
-import time
-import easyocr
-import requests
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
 from functools import wraps
-from models import db, User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-class PlateDetector:
-    def __init__(self, api_url):
-        """Initialize the plate detector"""
-        try:
-            self.reader = easyocr.Reader(['tr'])
-            self.api_url = api_url
-            cascade_path = cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml'
-            if not os.path.exists(cascade_path):
-                raise FileNotFoundError(f"Cascade file not found at {cascade_path}")
-            self.plate_cascade = cv2.CascadeClassifier(cascade_path)
-            logger.info("Plate detector initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing PlateDetector: {e}")
-            raise
+class Base(DeclarativeBase):
+    pass
 
-    def preprocess_image(self, frame):
-        """Görüntü ön işleme"""
-        try:
-            if frame is None:
-                logger.error("Received empty frame in preprocess_image")
-                return None
-
-            if frame.shape[1] > 1000:
-                scale = 1000 / frame.shape[1]
-                frame = cv2.resize(frame, None, fx=scale, fy=scale)
-
-            denoised = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
-            kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            sharpened = cv2.filter2D(denoised, -1, kernel)
-            gray = cv2.cvtColor(sharpened, cv2.COLOR_BGR2GRAY)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(gray)
-
-            return enhanced
-        except Exception as e:
-            logger.error(f"Error in preprocess_image: {e}")
-            return None
-
-    def detect_plate(self, frame):
-        """Plaka tespiti ve OCR"""
-        try:
-            if frame is None:
-                logger.error("Received empty frame in detect_plate")
-                return frame, []
-
-            processed = self.preprocess_image(frame)
-            if processed is None:
-                return frame, []
-
-            plates = self.plate_cascade.detectMultiScale(
-                processed,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=(60, 20),
-                flags=cv2.CASCADE_SCALE_IMAGE
-            )
-
-            detected_plates = []
-            for (x, y, w, h) in plates:
-                try:
-                    padding = 10
-                    roi_y1 = max(y - padding, 0)
-                    roi_y2 = min(y + h + padding, frame.shape[0])
-                    roi_x1 = max(x - padding, 0)
-                    roi_x2 = min(x + w + padding, frame.shape[1])
-
-                    roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
-                    if roi.size == 0:
-                        continue
-
-                    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                    _, roi_thresh = cv2.threshold(roi_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-                    results = self.reader.readtext(roi_thresh)
-                    if results:
-                        best_result = max(results, key=lambda x: x[2])
-                        text = best_result[1]
-                        conf = best_result[2] * 100
-
-                        text = text.upper().replace('İ', 'I').replace('Ğ', 'G').replace('Ç', 'C')
-                        text = ''.join(c for c in text if c.isalnum())
-
-                        if len(text) >= 5 and any(c.isdigit() for c in text):
-                            detected_plates.append({
-                                'text': text,
-                                'confidence': conf,
-                                'bbox': (x, y, w, h)
-                            })
-
-                            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                            cv2.putText(frame, f"{text} ({conf:.1f}%)", 
-                                      (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                      0.5, (0, 255, 0), 2)
-                            logger.info(f"Detected plate: {text} with confidence {conf:.1f}%")
-
-                except Exception as e:
-                    logger.error(f"Error processing ROI in detect_plate: {e}")
-                    continue
-
-            return frame, detected_plates
-        except Exception as e:
-            logger.error(f"Error in detect_plate: {e}")
-            return frame, []
-
-    def process_rtsp_stream(self, rtsp_url):
-        """RTSP stream'ini işle"""
-        logger.info(f"Connecting to RTSP stream: {rtsp_url}")
-        cap = None
-        try:
-            cap = cv2.VideoCapture(rtsp_url)
-            if not cap.isOpened():
-                logger.error("Failed to open RTSP stream")
-                return
-
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            last_detection_time = {}
-
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    logger.error("Failed to read frame from stream")
-                    break
-
-                processed_frame, detected_plates = self.detect_plate(frame)
-
-                current_time = time.time()
-                for plate in detected_plates:
-                    if (plate['text'] not in last_detection_time or 
-                        current_time - last_detection_time[plate['text']] > 5):
-                        try:
-                            response = requests.post(
-                                f"{self.api_url}/api/plates",
-                                json={
-                                    "plate_number": plate['text'],
-                                    "confidence": plate['confidence']
-                                }
-                            )
-                            if response.ok:
-                                last_detection_time[plate['text']] = current_time
-                                logger.info(f"Plate {plate['text']} sent to server successfully")
-                            else:
-                                logger.error(f"Server returned error: {response.status_code}")
-                        except Exception as e:
-                            logger.error(f"Failed to send plate to server: {e}")
-
-                ret, buffer = cv2.imencode('.jpg', processed_frame)
-                if ret:
-                    frame_bytes = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-                time.sleep(0.1)
-
-        except Exception as e:
-            logger.error(f"Error in process_rtsp_stream: {e}")
-        finally:
-            if cap is not None:
-                cap.release()
-
+db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
 # Database configuration
-db_url = os.environ.get("DATABASE_URL", "sqlite:///plates.db")
+db_url = os.environ.get("DATABASE_URL")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -211,6 +52,7 @@ def role_required(roles):
 
 @login_manager.user_loader
 def load_user(user_id):
+    from models import User
     try:
         return User.query.get(int(user_id))
     except (ValueError, TypeError):
@@ -221,31 +63,10 @@ def load_user(user_id):
 def index():
     return redirect(url_for('dashboard'))
 
-@app.route('/video_feed')
-@login_required
-def video_feed():
-    """Video akışı endpoint'i"""
-    try:
-        camera = CameraSettings.query.filter_by(is_active=True).first()
-        if not camera:
-            logger.error("No active camera found")
-            return "No active camera found", 404
-
-        detector = PlateDetector(f"http://{request.host}")
-        auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
-        rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-
-        return Response(
-            detector.process_rtsp_stream(rtsp_url),
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
-    except Exception as e:
-        logger.error(f"Error in video_feed: {e}")
-        return str(e), 500
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        from models import User
         username = request.form.get('username')
         password = request.form.get('password')
 
@@ -275,6 +96,7 @@ def dashboard():
 @login_required
 @role_required(['admin'])
 def users():
+    from models import User
     users = User.query.all()
     return render_template('users.html', users=users)
 
@@ -282,6 +104,7 @@ def users():
 @login_required
 @role_required(['admin'])
 def add_user():
+    from models import User
     data = request.get_json()
 
     if User.query.filter_by(username=data['username']).first():
@@ -305,6 +128,7 @@ def add_user():
 @login_required
 @role_required(['admin'])
 def toggle_user_status(user_id):
+    from models import User
     user = User.query.get_or_404(user_id)
 
     if user.username == current_user.username:
@@ -319,6 +143,7 @@ def toggle_user_status(user_id):
 @login_required
 @role_required(['admin'])
 def get_user(user_id):
+    from models import User
     user = User.query.get_or_404(user_id)
     return jsonify(user.to_dict())
 
@@ -326,6 +151,7 @@ def get_user(user_id):
 @login_required
 @role_required(['admin'])
 def update_user(user_id):
+    from models import User
     user = User.query.get_or_404(user_id)
     data = request.get_json()
 
@@ -355,6 +181,7 @@ def update_user(user_id):
 @login_required
 @role_required(['admin'])
 def delete_user(user_id):
+    from models import User
     user = User.query.get_or_404(user_id)
 
     if user.username == current_user.username:
@@ -364,21 +191,25 @@ def delete_user(user_id):
     db.session.commit()
     return jsonify({'status': 'success'})
 
+
 @app.route('/authorized-plates')
 @login_required
 def authorized_plates():
+    from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
     return render_template('authorized_plates.html', plates=plates)
 
 @app.route('/api/authorized-plates', methods=['GET'])
 @login_required
 def get_authorized_plates():
+    from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
     return jsonify([plate.to_dict() for plate in plates])
 
 @app.route('/api/authorized-plates', methods=['POST'])
 @login_required
 def add_authorized_plate():
+    from models import AuthorizedPlate
     data = request.get_json()
     plate_number = data.get('plate_number')
     description = data.get('description', '')
@@ -399,6 +230,7 @@ def add_authorized_plate():
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
 @login_required
 def update_authorized_plate(plate_id):
+    from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
     data = request.get_json()
 
@@ -455,12 +287,14 @@ def update_authorized_plate(plate_id):
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['GET'])
 @login_required
 def get_plate(plate_id):
+    from models import AuthorizedPlate
     plate = AuthorizedPlate.query.get_or_404(plate_id)
     return jsonify(plate.to_dict())
 
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['DELETE'])
 @login_required
 def delete_plate(plate_id):
+    from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
 
     # Yetkilendirme geçmişi kaydı
@@ -479,12 +313,14 @@ def delete_plate(plate_id):
 @app.route('/api/plates', methods=['GET'])
 @login_required
 def get_plates():
+    from models import PlateRecord
     plates = PlateRecord.query.all()
     return jsonify([plate.to_dict() for plate in plates])
 
 @app.route('/api/plates', methods=['POST'])
 @login_required
 def add_plate():
+    from models import AuthorizedPlate, PlateRecord
     plate_number = request.json.get('plate_number')
     confidence = request.json.get('confidence', 100)
 
@@ -521,6 +357,7 @@ def add_plate():
 @app.route('/plate-history')
 @login_required
 def plate_history():
+    from models import PlateRecord, AuthorizationHistory
     plate_records = PlateRecord.query.order_by(PlateRecord.timestamp.desc()).all()
     auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
@@ -529,6 +366,7 @@ def plate_history():
 @login_required
 @role_required(['admin'])
 def camera_settings():
+    from models import CameraSettings
     cameras = CameraSettings.query.all()
     return render_template('camera_settings.html', cameras=cameras)
 
@@ -536,6 +374,7 @@ def camera_settings():
 @login_required
 @role_required(['admin'])
 def get_cameras():
+    from models import CameraSettings
     cameras = CameraSettings.query.all()
     return jsonify([camera.to_dict() for camera in cameras])
 
@@ -543,6 +382,7 @@ def get_cameras():
 @login_required
 @role_required(['admin'])
 def add_camera():
+    from models import CameraSettings
     data = request.get_json()
 
     if not all(k in data for k in ['name', 'ip_address']):
@@ -555,8 +395,8 @@ def add_camera():
         username=data.get('username'),
         password=data.get('password'),
         settings=data.get('settings', {}),
-        stream_type=data.get('stream_type', 'http'),
-        rtsp_path=data.get('rtsp_path', '/'),
+        stream_type=data.get('stream_type', 'http'), # Added stream_type
+        rtsp_path=data.get('rtsp_path', '/'), # Added rtsp_path
     )
     db.session.add(new_camera)
     db.session.commit()
@@ -567,6 +407,7 @@ def add_camera():
 @login_required
 @role_required(['admin'])
 def get_camera(camera_id):
+    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     return jsonify(camera.to_dict())
 
@@ -574,6 +415,7 @@ def get_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def update_camera(camera_id):
+    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     data = request.get_json()
 
@@ -601,6 +443,7 @@ def update_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def delete_camera(camera_id):
+    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     db.session.delete(camera)
     db.session.commit()
@@ -610,6 +453,7 @@ def delete_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def toggle_camera_status(camera_id):
+    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     camera.is_active = not camera.is_active
     db.session.commit()
@@ -619,6 +463,7 @@ def toggle_camera_status(camera_id):
 @login_required
 @role_required(['admin'])
 def test_camera_connection(camera_id):
+    from models import CameraSettings
     import cv2
     import requests
     from requests.exceptions import RequestException
@@ -688,6 +533,7 @@ def test_camera_connection(camera_id):
         }), 400
 
 with app.app_context():
+    from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
     db.create_all()
 
     # Admin kullanıcısı yoksa oluştur
