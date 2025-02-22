@@ -16,6 +16,7 @@ app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+login_manager.login_message = 'Lütfen önce giriş yapın.'
 
 # Mock user database (replace with proper database in production)
 USERS = {
@@ -51,19 +52,20 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
+
         if username in USERS and check_password_hash(USERS[username], password):
             user = User(username)
             login_user(user)
             return redirect(url_for('dashboard'))
-        
-        flash('Invalid credentials')
+
+        flash('Geçersiz kullanıcı adı veya şifre')
     return render_template('login.html')
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
+    flash('Başarıyla çıkış yaptınız')
     return redirect(url_for('login'))
 
 @app.route('/dashboard')
@@ -86,22 +88,22 @@ def get_plates():
 def add_plate():
     plate_number = request.json.get('plate_number')
     confidence = request.json.get('confidence', 100)
-    
+
     try:
         with open(PLATES_FILE, 'r') as f:
             plates = json.load(f)
     except FileNotFoundError:
         plates = []
-    
+
     plates.append({
         'plate_number': plate_number,
         'confidence': confidence,
         'timestamp': datetime.now().isoformat()
     })
-    
+
     with open(PLATES_FILE, 'w') as f:
         json.dump(plates, f)
-    
+
     return jsonify({'status': 'success'})
 
 if __name__ == '__main__':

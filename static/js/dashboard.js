@@ -13,7 +13,7 @@ class Dashboard {
             data: {
                 labels: [],
                 datasets: [{
-                    label: 'Detections per hour',
+                    label: 'Saatlik Algılama',
                     data: [],
                     borderColor: '#0066CC',
                     tension: 0.4
@@ -24,7 +24,17 @@ class Dashboard {
                 maintainAspectRatio: false,
                 scales: {
                     y: {
-                        beginAtZero: true
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Algılama Sayısı'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Saat'
+                        }
                     }
                 }
             }
@@ -38,7 +48,7 @@ class Dashboard {
             this.updatePlatesList(plates);
             this.updateChart(plates);
         } catch (error) {
-            console.error('Error fetching plates:', error);
+            console.error('Plaka verisi alınamadı:', error);
         }
     }
 
@@ -47,22 +57,22 @@ class Dashboard {
         this.platesContainer.innerHTML = latest.map(plate => `
             <div class="plate-entry">
                 <div class="plate-number">${plate.plate_number}</div>
-                <div class="plate-confidence">Confidence: ${plate.confidence.toFixed(1)}%</div>
-                <div class="plate-timestamp">${new Date(plate.timestamp).toLocaleString()}</div>
+                <div class="plate-confidence">Doğruluk: %${plate.confidence.toFixed(1)}</div>
+                <div class="plate-timestamp">${new Date(plate.timestamp).toLocaleString('tr-TR')}</div>
             </div>
         `).join('');
     }
 
     updateChart(plates) {
         const hourlyData = new Map();
-        
+
         plates.forEach(plate => {
             const hour = new Date(plate.timestamp).getHours();
             hourlyData.set(hour, (hourlyData.get(hour) || 0) + 1);
         });
 
         const sortedHours = Array.from(hourlyData.keys()).sort((a, b) => a - b);
-        
+
         this.chart.data.labels = sortedHours.map(hour => `${hour}:00`);
         this.chart.data.datasets[0].data = sortedHours.map(hour => hourlyData.get(hour));
         this.chart.update();
@@ -92,7 +102,5 @@ class Dashboard {
 
 document.addEventListener('DOMContentLoaded', () => {
     const dashboard = new Dashboard();
-    
-    // Simulate new detections periodically
     setInterval(() => dashboard.simulateNewDetection(), 10000);
 });
