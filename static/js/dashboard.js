@@ -1,6 +1,6 @@
 class Dashboard {
     constructor() {
-        this.platesContainer = document.getElementById('latest-plates');
+        this.platesContainer = document.getElementById('latestPlates');
         this.chart = null;
         this.initChart();
         this.startDataPolling();
@@ -59,6 +59,9 @@ class Dashboard {
                 <div class="plate-number">${plate.plate_number}</div>
                 <div class="plate-confidence">Doğruluk: %${plate.confidence.toFixed(1)}</div>
                 <div class="plate-timestamp">${new Date(plate.timestamp).toLocaleString('tr-TR')}</div>
+                <div class="plate-status ${plate.is_authorized ? 'text-success' : 'text-danger'}">
+                    ${plate.is_authorized ? 'Yetkili' : 'Yetkisiz'}
+                </div>
             </div>
         `).join('');
     }
@@ -82,31 +85,12 @@ class Dashboard {
         this.fetchPlates();
         setInterval(() => this.fetchPlates(), 5000);
     }
-
-    simulateNewDetection() {
-        const mockPlate = {
-            plate_number: 'simulated',
-            confidence: Math.random() * 15 + 85,
-            timestamp: new Date().toISOString()
-        };
-
-        fetch('/api/plates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(mockPlate)
-        });
-    }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const dashboard = new Dashboard();
-    setInterval(() => dashboard.simulateNewDetection(), 10000);
-});
 document.addEventListener('DOMContentLoaded', function() {
     const cameraStream = document.getElementById('cameraStream');
     if (cameraStream) {
         cameraStream.src = '/video_feed';
     }
+    new Dashboard();
 });
