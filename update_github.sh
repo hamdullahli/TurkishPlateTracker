@@ -1,23 +1,26 @@
 #!/bin/bash
 
-# Configure git credentials
+# Hata durumunda betiği durdur
+set -e
+
+# Git yapılandırmasını ayarla
 git config --global user.email "plaka.tanima@example.com"
 git config --global user.name "Plaka Tanima Sistemi"
 
-# Configure GitHub token-based authentication
-git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
 echo "GitHub'a değişiklikler gönderiliyor..."
 
-# Add all changes
+# Tüm değişiklikleri ekle
 git add .
 
-# Create commit with current date
+# Tarih ile commit oluştur
 git commit -m "Manuel güncelleme: $(date)"
 
-# Push changes to GitHub
-if git push origin main; then
-    echo "Değişiklikler başarıyla GitHub'a gönderildi"
+# GitHub token kullanarak değişiklikleri gönder
+git push https://${GITHUB_TOKEN}@github.com/$(git config --get remote.origin.url | sed 's/https:\/\/github.com\///g')
+
+if [ $? -eq 0 ]; then
+    echo "✅ Değişiklikler başarıyla GitHub'a gönderildi"
 else
-    echo "HATA: Değişiklikler gönderilemedi"
+    echo "❌ HATA: Değişiklikler gönderilemedi"
+    exit 1
 fi
