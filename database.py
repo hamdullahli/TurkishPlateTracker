@@ -8,7 +8,7 @@ class Base(DeclarativeBase):
 db = SQLAlchemy(model_class=Base)
 
 def init_db(app):
-    # configure the database, relative to the app instance folder
+    # configure the database using environment variables
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise RuntimeError(
