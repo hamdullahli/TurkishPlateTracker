@@ -7,6 +7,7 @@ import requests
 import logging
 import time
 import sys
+import os
 from datetime import datetime
 
 # Configure logging
@@ -14,16 +15,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PlateDetector:
-    def __init__(self, api_url, username, password):
+    def __init__(self, api_url, api_token):
         """
         Initialize the plate detector
         api_url: URL of the main system's API
-        username: Username for API authentication
-        password: Password for API authentication
+        api_token: Token for API authentication
         """
         self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
         self.api_url = api_url
-        self.auth = (username, password)
+        self.api_token = api_token
 
     def preprocess_image(self, frame):
         """
@@ -91,8 +91,12 @@ class PlateDetector:
         try:
             response = requests.post(
                 f"{self.api_url}/api/plates",
-                json={"plate_number": plate_number, "confidence": confidence * 100},
-                auth=self.auth
+                json={
+                    "plate_number": plate_number,
+                    "confidence": confidence * 100,
+                    "processed_by": "plate_detector"
+                },
+                headers={'X-API-Token': self.api_token}
             )
             response.raise_for_status()
             result = response.json()
@@ -142,11 +146,10 @@ class PlateDetector:
 def main():
     # Configuration
     API_URL = "http://0.0.0.0:5000"  # Updated to use 0.0.0.0 instead of localhost
-    USERNAME = "admin"  # API username
-    PASSWORD = "admin123"  # API password
+    API_TOKEN = os.environ.get("API_TOKEN", "test-token-123")  # Use environment variable for token
 
     # Initialize plate detector
-    detector = PlateDetector(API_URL, USERNAME, PASSWORD)
+    detector = PlateDetector(API_URL, API_TOKEN)
 
     # Check command line arguments for video file or RTSP URL
     if len(sys.argv) > 1:

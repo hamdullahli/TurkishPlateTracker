@@ -50,6 +50,20 @@ def role_required(roles):
         return decorated_function
     return decorator
 
+# Add API token auth decorator after the role_required decorator
+def api_token_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_token = request.headers.get('X-API-Token')
+        if not api_token:
+            return jsonify({'error': 'API token required'}), 401
+
+        if api_token != os.environ.get("API_TOKEN", "test-token-123"):
+            return jsonify({'error': 'Invalid API token'}), 401
+
+        return f(*args, **kwargs)
+    return decorated_function
+
 @login_manager.user_loader
 def load_user(user_id):
     from models import User
@@ -317,12 +331,14 @@ def get_plates():
     plates = PlateRecord.query.all()
     return jsonify([plate.to_dict() for plate in plates])
 
+# Update /api/plates endpoint to use token auth instead of session auth
 @app.route('/api/plates', methods=['POST'])
-@login_required
+@api_token_required
 def add_plate():
     from models import AuthorizedPlate, PlateRecord
     plate_number = request.json.get('plate_number')
     confidence = request.json.get('confidence', 100)
+    processed_by = request.json.get('processed_by', 'system')
 
     # Yetkili plaka kontrolü
     authorized_plate = AuthorizedPlate.query.filter_by(
@@ -342,7 +358,7 @@ def add_plate():
         plate_number=plate_number,
         confidence=confidence,
         is_authorized=is_authorized,
-        processed_by=current_user.username,
+        processed_by=processed_by,
         action_taken=action_taken
     )
     db.session.add(new_plate)
