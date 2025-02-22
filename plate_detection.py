@@ -7,6 +7,10 @@ import time
 import sys
 import os
 from datetime import datetime
+from tflite_runtime.interpreter import Interpreter
+from pycoral.utils import edgetpu
+from pycoral.adapters import common
+from pycoral.adapters import detect
 
 # Configure logging
 logging.basicConfig(
@@ -20,26 +24,96 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class PlateDetector:
-    def __init__(self, api_url, api_token):
+    def __init__(self, api_url, api_token, model_path='model/plate_detect_edgetpu.tflite'):
         """
-        Initialize the plate detector
+        Initialize the plate detector with Edge TPU support
         api_url: URL of the main system's API
         api_token: Token for API authentication
+        model_path: Path to the Edge TPU compatible TFLite model
         """
         try:
-            self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
+            # Initialize EasyOCR for text recognition
+            self.reader = easyocr.Reader(['tr'])
             self.api_url = api_url
             self.api_token = api_token
-            logger.info("Plaka algılama sistemi başlatıldı")
+
+            # Initialize Edge TPU interpreter
+            self.interpreter = edgetpu.make_interpreter(model_path)
+            self.interpreter.allocate_tensors()
+
+            # Get model details
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
+            self.input_shape = self.input_details[0]['shape']
+
+            logger.info("TPU destekli plaka algılama sistemi başlatıldı")
         except Exception as e:
-            logger.error(f"Başlatma hatası: {str(e)}")
+            logger.error(f"TPU başlatma hatası: {str(e)}")
             raise
 
-    def setup_camera(self, camera_id=0, resolution=(1280, 720)):
+    def preprocess_image_for_tpu(self, frame):
         """
-        Setup camera capture
-        camera_id: Camera device ID (default is 0 for primary camera)
-        resolution: Desired resolution tuple (width, height)
+        Preprocess image for TPU inference
+        """
+        try:
+            # Resize image to match model input shape
+            input_shape = self.input_shape[1:3]
+            processed_img = cv2.resize(frame, input_shape)
+
+            # Normalize pixel values
+            processed_img = processed_img.astype('float32') / 255.0
+
+            # Add batch dimension
+            processed_img = np.expand_dims(processed_img, axis=0)
+
+            return processed_img
+        except Exception as e:
+            logger.error(f"Görüntü ön işleme hatası: {str(e)}")
+            return None
+
+    def detect_plate_with_tpu(self, frame):
+        """
+        Detect license plates using Edge TPU
+        """
+        try:
+            # Preprocess image
+            input_data = self.preprocess_image_for_tpu(frame)
+            if input_data is None:
+                return []
+
+            # Set input tensor
+            self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+
+            # Run inference
+            self.interpreter.invoke()
+
+            # Get detection results
+            boxes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
+            classes = self.interpreter.get_tensor(self.output_details[1]['index'])[0]
+            scores = self.interpreter.get_tensor(self.output_details[2]['index'])[0]
+
+            # Filter detections by confidence threshold
+            valid_detections = []
+            height, width = frame.shape[:2]
+
+            for i, score in enumerate(scores):
+                if score > 0.5:  # Confidence threshold
+                    ymin, xmin, ymax, xmax = boxes[i]
+                    xmin = int(xmin * width)
+                    xmax = int(xmax * width)
+                    ymin = int(ymin * height)
+                    ymax = int(ymax * height)
+                    valid_detections.append((xmin, ymin, xmax - xmin, ymax - ymin))
+
+            return valid_detections
+
+        except Exception as e:
+            logger.error(f"TPU algılama hatası: {str(e)}")
+            return []
+
+    def process_camera_feed(self, camera_id=0, resolution=(1280, 720)):
+        """
+        Process live camera feed and detect plates using Edge TPU
         """
         try:
             cap = cv2.VideoCapture(camera_id)
@@ -50,56 +124,56 @@ class PlateDetector:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
 
-            logger.info(f"Kamera başarıyla başlatıldı: ID={camera_id}, Çözünürlük={resolution}")
-            return cap
+            logger.info("TPU destekli kamera akışı başlatıldı")
+
+            last_detection_time = {}  # Track last detection time for each plate
+            min_detection_interval = 5  # Minimum seconds between same plate detections
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    logger.error("Kameradan görüntü alınamadı")
+                    break
+
+                # Detect plates using TPU
+                plate_regions = self.detect_plate_with_tpu(frame)
+
+                current_time = time.time()
+
+                for plate_roi in plate_regions:
+                    # Extract plate region
+                    x, y, w, h = plate_roi
+                    plate_img = frame[y:y+h, x:x+w]
+
+                    # Read plate text
+                    plate_text, confidence = self.read_plate(frame, plate_roi)
+
+                    if plate_text and confidence > 0.6:
+                        # Check if we recently detected this plate
+                        if plate_text in last_detection_time:
+                            time_since_last = current_time - last_detection_time[plate_text]
+                            if time_since_last < min_detection_interval:
+                                continue
+
+                        logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
+                        self.send_plate_to_server(plate_text, confidence, camera_id)
+                        last_detection_time[plate_text] = current_time
+
+                        # Draw detection on frame
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                        cv2.putText(frame, plate_text, (x, y-10),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                # Add a small delay to prevent excessive CPU usage
+                time.sleep(0.1)
+
+        except KeyboardInterrupt:
+            logger.info("Plaka algılama durduruldu...")
         except Exception as e:
-            logger.error(f"Kamera başlatma hatası: {str(e)}")
-            raise
-
-    def preprocess_image(self, frame):
-        """
-        Preprocess the image for better plate detection
-        """
-        try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            # Apply bilateral filter to remove noise while keeping edges sharp
-            bilateral = cv2.bilateralFilter(gray, 11, 17, 17)
-
-            # Edge detection
-            edged = cv2.Canny(bilateral, 30, 200)
-
-            return edged
-        except Exception as e:
-            logger.error(f"Görüntü işleme hatası: {str(e)}")
-            return None
-
-    def find_plate_contours(self, processed_img):
-        """
-        Find contours that might be license plates
-        """
-        try:
-            if processed_img is None:
-                return []
-
-            # Find contours
-            contours, _ = cv2.findContours(processed_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-            # Filter contours based on area and aspect ratio
-            possible_plates = []
-            for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
-                x, y, w, h = cv2.boundingRect(contour)
-                aspect_ratio = float(w) / h
-
-                # Turkish license plates typically have an aspect ratio between 2 and 5
-                if 2.0 <= aspect_ratio <= 5.0 and w > 100:
-                    possible_plates.append((x, y, w, h))
-
-            return possible_plates
-        except Exception as e:
-            logger.error(f"Plaka kontür analizi hatası: {str(e)}")
-            return []
+            logger.error(f"Kamera işleme hatası: {str(e)}")
+        finally:
+            if 'cap' in locals():
+                cap.release()
 
     def read_plate(self, img, roi):
         """
@@ -138,7 +212,7 @@ class PlateDetector:
             data = {
                 "plate_number": plate_number,
                 "confidence": confidence * 100,
-                "processed_by": "raspberry_pi",
+                "processed_by": "tpu_detector",
                 "camera_id": camera_id
             }
 
@@ -155,145 +229,28 @@ class PlateDetector:
             logger.error(f"Sunucuya gönderme hatası: {str(e)}")
             return None
 
-    def process_camera_feed(self, camera_id=0, resolution=(1280, 720)):
-        """
-        Process live camera feed and detect plates
-        """
-        try:
-            cap = self.setup_camera(camera_id, resolution)
-            logger.info("Kamera akışı işleniyor...")
-
-            last_detection_time = {}  # Track last detection time for each plate
-            min_detection_interval = 5  # Minimum seconds between same plate detections
-
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    logger.error("Kameradan görüntü alınamadı")
-                    break
-
-                # Process frame
-                processed = self.preprocess_image(frame)
-                possible_plates = self.find_plate_contours(processed)
-
-                current_time = time.time()
-
-                for plate_roi in possible_plates:
-                    plate_text, confidence = self.read_plate(frame, plate_roi)
-
-                    if plate_text and confidence > 0.6:
-                        # Check if we recently detected this plate
-                        if plate_text in last_detection_time:
-                            time_since_last = current_time - last_detection_time[plate_text]
-                            if time_since_last < min_detection_interval:
-                                continue
-
-                        logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
-                        self.send_plate_to_server(plate_text, confidence, camera_id)
-                        last_detection_time[plate_text] = current_time
-
-                # Add a small delay to prevent excessive CPU usage
-                time.sleep(0.1)
-
-        except KeyboardInterrupt:
-            logger.info("Plaka algılama durduruldu...")
-        except Exception as e:
-            logger.error(f"Kamera işleme hatası: {str(e)}")
-        finally:
-            if 'cap' in locals():
-                cap.release()
-
 def main():
     # Configuration
     API_URL = os.environ.get("API_URL", "http://0.0.0.0:5000")
     API_TOKEN = os.environ.get("API_TOKEN", "test-token-123")
     CAMERA_ID = int(os.environ.get("CAMERA_ID", "0"))
+    MODEL_PATH = os.environ.get("TPU_MODEL_PATH", "model/plate_detect_edgetpu.tflite")
 
-    # Initialize plate detector
-    detector = PlateDetector(API_URL, API_TOKEN)
+    # Initialize TPU-enabled plate detector
+    detector = PlateDetector(API_URL, API_TOKEN, model_path=MODEL_PATH)
 
     # Check command line arguments for video file or RTSP URL
     if len(sys.argv) > 1:
         source = sys.argv[1]
         if source.startswith('rtsp://'):
-            logger.info(f"Processing RTSP stream: {source}")
-            #This part remains untouched as it's not relevant to camera processing.
-            cap = cv2.VideoCapture(source)
-            if not cap.isOpened():
-                logger.error("Error: Could not open RTSP stream.")
-                return
-
-            logger.info("Started processing RTSP stream")
-
-            try:
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        logger.error("Error reading frame from stream")
-                        break
-
-                    # Process frame
-                    processed = detector.preprocess_image(frame)
-                    possible_plates = detector.find_plate_contours(processed)
-
-                    for plate_roi in possible_plates:
-                        plate_text, confidence = detector.read_plate(frame, plate_roi)
-
-                        if plate_text and confidence > 0.6:  # Minimum confidence threshold
-                            logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
-                            detector.send_plate_to_server(plate_text, confidence)
-
-                    # Add a small delay to prevent excessive CPU usage
-                    time.sleep(0.1)
-
-            except KeyboardInterrupt:
-                logger.info("Stopping plate detection...")
-            finally:
-                cap.release()
-
+            logger.info(f"RTSP akışı işleniyor: {source}")
+            detector.process_camera_feed(source) #modified to handle RTSP stream directly
         else:
-            logger.info(f"Processing video file: {source}")
-            try:
-                cap = cv2.VideoCapture(source)
-                if not cap.isOpened():
-                    logger.error(f"Error: Could not open video file {source}")
-                    return
-
-                logger.info("Successfully opened video file")
-
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        logger.info("Reached end of video file")
-                        break
-
-                    processed = detector.preprocess_image(frame)
-                    possible_plates = detector.find_plate_contours(processed)
-
-                    logger.debug(f"Found {len(possible_plates)} possible plate regions")
-
-                    for plate_roi in possible_plates:
-                        plate_text, confidence = detector.read_plate(frame, plate_roi)
-                        if plate_text and confidence > 0.6:
-                            logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
-                            try:
-                                result = detector.send_plate_to_server(plate_text, confidence)
-                                logger.info(f"Server response: {result}")
-                            except Exception as e:
-                                logger.error(f"Failed to send plate to server: {e}")
-
-                    time.sleep(0.1)
-
-            except KeyboardInterrupt:
-                logger.info("Stopping plate detection...")
-            except Exception as e:
-                logger.error(f"Error processing video: {e}")
-            finally:
-                cap.release()
+            logger.info(f"Video dosyası işleniyor: {source}")
+            detector.process_camera_feed(source) #modified to handle video file directly
     else:
         # Process camera feed by default
         detector.process_camera_feed(camera_id=CAMERA_ID)
-
 
 if __name__ == "__main__":
     main()
