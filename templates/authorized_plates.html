@@ -16,7 +16,7 @@
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table">
+                <table class="table" id="platesTable">
                     <thead>
                         <tr>
                             <th>Plaka</th>
@@ -82,6 +82,17 @@
 
 {% block scripts %}
 <script>
+$(document).ready(function() {
+    $('#platesTable').DataTable({
+        language: {
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/tr.json',
+        },
+        order: [[0, 'asc']],
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "Tümü"]],
+    });
+});
+
 async function addNewPlate() {
     const plateNumber = document.getElementById('plateNumber').value;
     const description = document.getElementById('description').value;
