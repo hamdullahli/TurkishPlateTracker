@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Kamera Ayarları</h2>
+        </div>
+        <div class="col text-end">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCameraModal">
+                Yeni Kamera Ekle
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table" id="camerasTable">
+                    <thead>
+                        <tr>
+                            <th>Kamera Adı</th>
+                            <th>IP Adresi</th>
+                            <th>Port</th>
+                            <th>Durum</th>
+                            <th>Son Bağlantı</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for camera in cameras %}
+                        <tr>
+                            <td>{{ camera.name }}</td>
+                            <td>{{ camera.ip_address }}</td>
+                            <td>{{ camera.port }}</td>
+                            <td>
+                                <span class="badge {% if camera.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                    {{ 'Aktif' if camera.is_active else 'Pasif' }}
+                                </span>
+                            </td>
+                            <td>{{ camera.last_connected|default('Hiç bağlanmadı', true) }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="toggleCameraStatus({{ camera.id }})">
+                                    {{ 'Pasif Yap' if camera.is_active else 'Aktif Yap' }}
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="editCamera({{ camera.id }})">
+                                    Düzenle
+                                </button>
+                                <button class="btn btn-sm btn-outline-info" onclick="testConnection({{ camera.id }})">
+                                    Bağlantı Testi
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteCamera({{ camera.id }})">
+                                    Sil
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Yeni Kamera Ekleme Modal -->
+<div class="modal fade" id="addCameraModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Yeni Kamera Ekle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addCameraForm">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Kamera Adı</label>
+                        <input type="text" class="form-control" id="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ip_address" class="form-label">IP Adresi</label>
+                        <input type="text" class="form-control" id="ip_address" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="port" class="form-label">Port</label>
+                        <input type="number" class="form-control" id="port" value="80">
+                    </div>
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Kullanıcı Adı</label>
+                        <input type="text" class="form-control" id="username">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Şifre</label>
+                        <input type="password" class="form-control" id="password">
+                    </div>
+                    <div class="mb-3">
+                        <label for="settings" class="form-label">Kamera Ayarları</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="resolution" class="form-label">Çözünürlük</label>
+                                <select class="form-select" id="resolution">
+                                    <option value="1920x1080">1920x1080</option>
+                                    <option value="1280x720">1280x720</option>
+                                    <option value="640x480">640x480</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="fps" class="form-label">FPS</label>
+                                <input type="number" class="form-control" id="fps" value="30" min="1" max="60">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="addNewCamera()">Ekle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Kamera Düzenleme Modal -->
+<div class="modal fade" id="editCameraModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Kamera Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editCameraForm">
+                    <input type="hidden" id="editCameraId">
+                    <div class="mb-3">
+                        <label for="editName" class="form-label">Kamera Adı</label>
+                        <input type="text" class="form-control" id="editName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editIpAddress" class="form-label">IP Adresi</label>
+                        <input type="text" class="form-control" id="editIpAddress" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editPort" class="form-label">Port</label>
+                        <input type="number" class="form-control" id="editPort">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editUsername" class="form-label">Kullanıcı Adı</label>
+                        <input type="text" class="form-control" id="editUsername">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editPassword" class="form-label">Şifre (Boş bırakılırsa değişmez)</label>
+                        <input type="password" class="form-control" id="editPassword">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editSettings" class="form-label">Kamera Ayarları</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="editResolution" class="form-label">Çözünürlük</label>
+                                <select class="form-select" id="editResolution">
+                                    <option value="1920x1080">1920x1080</option>
+                                    <option value="1280x720">1280x720</option>
+                                    <option value="640x480">640x480</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editFps" class="form-label">FPS</label>
+                                <input type="number" class="form-control" id="editFps" min="1" max="60">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="updateCamera()">Güncelle</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    $('#camerasTable').DataTable({
+        language: {
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/tr.json',
+        },
+        order: [[0, 'asc']],
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "Tümü"]],
+    });
+});
+
+async function addNewCamera() {
+    const data = {
+        name: document.getElementById('name').value,
+        ip_address: document.getElementById('ip_address').value,
+        port: parseInt(document.getElementById('port').value),
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        settings: {
+            resolution: document.getElementById('resolution').value,
+            fps: parseInt(document.getElementById('fps').value)
+        }
+    };
+
+    try {
+        const response = await fetch('/api/cameras', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const responseData = await response.json();
+            alert(responseData.error || 'Kamera eklenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kamera eklenirken bir hata oluştu');
+    }
+}
+
+async function editCamera(cameraId) {
+    try {
+        const response = await fetch(`/api/cameras/${cameraId}`);
+        const camera = await response.json();
+
+        document.getElementById('editCameraId').value = cameraId;
+        document.getElementById('editName').value = camera.name;
+        document.getElementById('editIpAddress').value = camera.ip_address;
+        document.getElementById('editPort').value = camera.port;
+        document.getElementById('editUsername').value = camera.username;
+        document.getElementById('editResolution').value = camera.settings.resolution;
+        document.getElementById('editFps').value = camera.settings.fps;
+
+        new bootstrap.Modal(document.getElementById('editCameraModal')).show();
+    } catch (error) {
+        alert('Kamera bilgileri alınırken bir hata oluştu');
+    }
+}
+
+async function updateCamera() {
+    const cameraId = document.getElementById('editCameraId').value;
+    const data = {
+        name: document.getElementById('editName').value,
+        ip_address: document.getElementById('editIpAddress').value,
+        port: parseInt(document.getElementById('editPort').value),
+        username: document.getElementById('editUsername').value,
+        settings: {
+            resolution: document.getElementById('editResolution').value,
+            fps: parseInt(document.getElementById('editFps').value)
+        }
+    };
+
+    const password = document.getElementById('editPassword').value;
+    if (password) {
+        data.password = password;
+    }
+
+    try {
+        const response = await fetch(`/api/cameras/${cameraId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const responseData = await response.json();
+            alert(responseData.error || 'Kamera güncellenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kamera güncellenirken bir hata oluştu');
+    }
+}
+
+async function deleteCamera(cameraId) {
+    if (!confirm('Bu kamerayı silmek istediğinizden emin misiniz?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/cameras/${cameraId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Kamera silinirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kamera silinirken bir hata oluştu');
+    }
+}
+
+async function toggleCameraStatus(cameraId) {
+    try {
+        const response = await fetch(`/api/cameras/${cameraId}/toggle-status`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Kamera durumu güncellenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kamera durumu güncellenirken bir hata oluştu');
+    }
+}
+
+async function testConnection(cameraId) {
+    try {
+        const response = await fetch(`/api/cameras/${cameraId}/test-connection`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+        alert(result.message);
+    } catch (error) {
+        alert('Bağlantı testi yapılırken bir hata oluştu');
+    }
+}
+</script>
+{% endblock %}

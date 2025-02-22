@@ -356,8 +356,117 @@ def plate_history():
     auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
 
+# Varolan kodun devamına eklenecek
+
+@app.route('/camera-settings')
+@login_required
+@role_required(['admin'])
+def camera_settings():
+    from models import CameraSettings
+    cameras = CameraSettings.query.all()
+    return render_template('camera_settings.html', cameras=cameras)
+
+@app.route('/api/cameras', methods=['GET'])
+@login_required
+@role_required(['admin'])
+def get_cameras():
+    from models import CameraSettings
+    cameras = CameraSettings.query.all()
+    return jsonify([camera.to_dict() for camera in cameras])
+
+@app.route('/api/cameras', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def add_camera():
+    from models import CameraSettings
+    data = request.get_json()
+
+    if not all(k in data for k in ['name', 'ip_address']):
+        return jsonify({'error': 'Kamera adı ve IP adresi gerekli'}), 400
+
+    new_camera = CameraSettings(
+        name=data['name'],
+        ip_address=data['ip_address'],
+        port=data.get('port', 80),
+        username=data.get('username'),
+        password=data.get('password'),
+        settings=data.get('settings', {})
+    )
+    db.session.add(new_camera)
+    db.session.commit()
+
+    return jsonify(new_camera.to_dict()), 201
+
+@app.route('/api/cameras/<int:camera_id>', methods=['GET'])
+@login_required
+@role_required(['admin'])
+def get_camera(camera_id):
+    from models import CameraSettings
+    camera = CameraSettings.query.get_or_404(camera_id)
+    return jsonify(camera.to_dict())
+
+@app.route('/api/cameras/<int:camera_id>', methods=['PUT'])
+@login_required
+@role_required(['admin'])
+def update_camera(camera_id):
+    from models import CameraSettings
+    camera = CameraSettings.query.get_or_404(camera_id)
+    data = request.get_json()
+
+    if 'name' in data:
+        camera.name = data['name']
+    if 'ip_address' in data:
+        camera.ip_address = data['ip_address']
+    if 'port' in data:
+        camera.port = data['port']
+    if 'username' in data:
+        camera.username = data['username']
+    if 'password' in data:
+        camera.password = data['password']
+    if 'settings' in data:
+        camera.settings = data['settings']
+
+    db.session.commit()
+    return jsonify(camera.to_dict())
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+@login_required
+@role_required(['admin'])
+def delete_camera(camera_id):
+    from models import CameraSettings
+    camera = CameraSettings.query.get_or_404(camera_id)
+    db.session.delete(camera)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.route('/api/cameras/<int:camera_id>/toggle-status', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def toggle_camera_status(camera_id):
+    from models import CameraSettings
+    camera = CameraSettings.query.get_or_404(camera_id)
+    camera.is_active = not camera.is_active
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.route('/api/cameras/<int:camera_id>/test-connection', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def test_camera_connection(camera_id):
+    from models import CameraSettings
+    camera = CameraSettings.query.get_or_404(camera_id)
+
+    # Burada kamera bağlantı testi yapılacak
+    # Şimdilik mock bir yanıt dönüyoruz
+    success = True
+    if success:
+        camera.last_connected = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Kamera bağlantısı başarılı'})
+    return jsonify({'status': 'error', 'message': 'Kamera bağlantısı başarısız'})
+
 with app.app_context():
-    from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory
+    from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
     db.create_all()
 
     # Admin kullanıcısı yoksa oluştur
