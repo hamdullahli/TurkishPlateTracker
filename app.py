@@ -66,21 +66,14 @@ def video_feed():
     if not camera:
         return "No active camera found", 404
         
-    def generate_frames():
-        auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
-        rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-        
-        cap = cv2.VideoCapture(rtsp_url)
-        while True:
-            success, frame = cap.read()
-            if not success:
-                break
-            else:
-                ret, buffer = cv2.imencode('.jpg', frame)
-                frame = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        cap.release()
+    detector = PlateDetector(f"http://{request.host}")
+    auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
+    rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
+    
+    return Response(
+        detector.process_rtsp_stream(rtsp_url),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
