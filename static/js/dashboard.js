@@ -114,10 +114,9 @@ class Dashboard {
     }
 }
 
-// Wait for DOM and Chart.js to load
+// Initialize when DOM is loaded
 window.addEventListener('load', () => {
     if (document.getElementById('detectionChart')) {
         const dashboard = new Dashboard();
-        setInterval(() => dashboard.simulateNewDetection(), 10000);
     }
 });

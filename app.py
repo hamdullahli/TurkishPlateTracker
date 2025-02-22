@@ -519,43 +519,45 @@ def test_camera_connection(camera_id):
 def video_feed(camera_id):
     def generate_frames():
         try:
-            camera = CameraSettings.query.get_or_404(camera_id)
-            if not camera.is_active:
-                logger.warning(f"Camera {camera_id} is not active")
-                return
+            # Use application context
+            with app.app_context():
+                camera = CameraSettings.query.get_or_404(camera_id)
+                if not camera.is_active:
+                    logger.warning(f"Camera {camera_id} is not active")
+                    return
 
-            # Build RTSP URL
-            auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
-            if camera.stream_type == 'rtsp':
-                stream_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-            else:
-                stream_url = f"http://{camera.ip_address}:{camera.port}/video_feed"
-
-            logger.info(f"Attempting to connect to camera stream: {stream_url.replace(auth, '***@')}")
-
-            cap = cv2.VideoCapture(stream_url)
-            if not cap.isOpened():
-                logger.error(f"Failed to open camera stream: {stream_url.replace(auth, '***@')}")
-                return
-
-            logger.info(f"Successfully connected to camera {camera_id}")
-
-            while True:
-                success, frame = cap.read()
-                if not success:
-                    logger.error(f"Failed to read frame from camera {camera_id}")
-                    break
+                # Build RTSP URL
+                auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
+                if camera.stream_type == 'rtsp':
+                    stream_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
                 else:
-                    ret, buffer = cv2.imencode('.jpg', frame)
-                    if not ret:
-                        logger.error(f"Failed to encode frame from camera {camera_id}")
-                        break
-                    frame = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    stream_url = f"http://{camera.ip_address}:{camera.port}/video_feed"
 
-            cap.release()
-            logger.info(f"Camera {camera_id} stream ended")
+                logger.info(f"Attempting to connect to camera stream: {stream_url.replace(auth, '***@')}")
+
+                cap = cv2.VideoCapture(stream_url)
+                if not cap.isOpened():
+                    logger.error(f"Failed to open camera stream: {stream_url.replace(auth, '***@')}")
+                    return
+
+                logger.info(f"Successfully connected to camera {camera_id}")
+
+                while True:
+                    success, frame = cap.read()
+                    if not success:
+                        logger.error(f"Failed to read frame from camera {camera_id}")
+                        break
+                    else:
+                        ret, buffer = cv2.imencode('.jpg', frame)
+                        if not ret:
+                            logger.error(f"Failed to encode frame from camera {camera_id}")
+                            break
+                        frame = buffer.tobytes()
+                        yield (b'--frame\r\n'
+                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+                cap.release()
+                logger.info(f"Camera {camera_id} stream ended")
 
         except Exception as e:
             logger.error(f"Error in video feed for camera {camera_id}: {str(e)}")
