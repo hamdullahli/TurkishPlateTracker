@@ -10,6 +10,7 @@ Bu proje, güvenlik ve erişim yönetimi için gelişmiş plaka tanıma sistemi 
 - Yetkili plaka yönetimi
 - Plaka geçmiş kaydı
 - Kamera ayarları ve yönetimi
+- GitHub ile otomatik senkronizasyon
 
 ## Kurulum
 
@@ -38,3 +39,11 @@ Projeyi GitHub'da güncellemek için:
 1. `.env` dosyasına GitHub token ekleyin
 2. Değişiklikleri yapın
 3. `./update_github.sh` scriptini çalıştırın
+
+## Sistem Gereksinimleri
+
+- Python 3.9+
+- PostgreSQL
+- OpenCV
+- EasyOCR
+- Flask
