@@ -50,6 +50,12 @@
                                 <button class="btn btn-sm btn-outline-primary" onclick="toggleUserStatus({{ user.id }})">
                                     {{ 'Pasif Yap' if user.is_active else 'Aktif Yap' }}
                                 </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="editUser({{ user.id }})">
+                                    Düzenle
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ user.id }})">
+                                    Sil
+                                </button>
                                 {% endif %}
                             </td>
                         </tr>
@@ -99,6 +105,46 @@
         </div>
     </div>
 </div>
+
+<!-- Kullanıcı Düzenleme Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Kullanıcı Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm">
+                    <input type="hidden" id="editUserId">
+                    <div class="mb-3">
+                        <label for="editUsername" class="form-label">Kullanıcı Adı</label>
+                        <input type="text" class="form-control" id="editUsername" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editEmail" class="form-label">E-posta</label>
+                        <input type="email" class="form-control" id="editEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editPassword" class="form-label">Yeni Şifre (Boş bırakılabilir)</label>
+                        <input type="password" class="form-control" id="editPassword">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editRole" class="form-label">Rol</label>
+                        <select class="form-select" id="editRole" required>
+                            <option value="operator">Operatör</option>
+                            <option value="admin">Yönetici</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="updateUser()">Güncelle</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -142,6 +188,79 @@ async function addNewUser() {
         }
     } catch (error) {
         alert('Kullanıcı eklenirken bir hata oluştu');
+    }
+}
+
+async function editUser(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        const user = await response.json();
+
+        document.getElementById('editUserId').value = userId;
+        document.getElementById('editUsername').value = user.username;
+        document.getElementById('editEmail').value = user.email;
+        document.getElementById('editRole').value = user.role;
+
+        new bootstrap.Modal(document.getElementById('editUserModal')).show();
+    } catch (error) {
+        alert('Kullanıcı bilgileri alınırken bir hata oluştu');
+    }
+}
+
+async function updateUser() {
+    const userId = document.getElementById('editUserId').value;
+    const username = document.getElementById('editUsername').value;
+    const email = document.getElementById('editEmail').value;
+    const password = document.getElementById('editPassword').value;
+    const role = document.getElementById('editRole').value;
+
+    const data = {
+        username,
+        email,
+        role
+    };
+
+    if (password) {
+        data.password = password;
+    }
+
+    try {
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Kullanıcı güncellenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kullanıcı güncellenirken bir hata oluştu');
+    }
+}
+
+async function deleteUser(userId) {
+    if (!confirm('Bu kullanıcıyı silmek istediğinizden emin misiniz?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Kullanıcı silinirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Kullanıcı silinirken bir hata oluştu');
     }
 }
 

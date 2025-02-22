@@ -32,7 +32,7 @@
                             <td>{{ plate.plate_number }}</td>
                             <td>{{ plate.description }}</td>
                             <td>
-                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}" data-plate-id="{{ plate.id }}" data-plate-status="{{ plate.is_active|int }}">
+                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}">
                                     {{ 'Aktif' if plate.is_active else 'Pasif' }}
                                 </span>
                             </td>
@@ -40,6 +40,12 @@
                             <td>
                                 <button class="btn btn-sm btn-outline-primary" onclick="togglePlateStatus({{ plate.id }})">
                                     {{ 'Pasif Yap' if plate.is_active else 'Aktif Yap' }}
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="editPlate({{ plate.id }})">
+                                    Düzenle
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deletePlate({{ plate.id }})">
+                                    Sil
                                 </button>
                             </td>
                         </tr>
@@ -74,6 +80,35 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
                 <button type="button" class="btn btn-primary" onclick="addNewPlate()">Ekle</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Plaka Düzenleme Modal -->
+<div class="modal fade" id="editPlateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Plaka Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editPlateForm">
+                    <input type="hidden" id="editPlateId">
+                    <div class="mb-3">
+                        <label for="editPlateNumber" class="form-label">Plaka Numarası</label>
+                        <input type="text" class="form-control" id="editPlateNumber" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editDescription" class="form-label">Açıklama</label>
+                        <textarea class="form-control" id="editDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="updatePlate()">Güncelle</button>
             </div>
         </div>
     </div>
@@ -120,9 +155,25 @@ async function addNewPlate() {
     }
 }
 
-async function togglePlateStatus(plateId) {
-    const statusBadge = document.querySelector(`span[data-plate-id="${plateId}"]`);
-    const currentStatus = statusBadge.getAttribute('data-plate-status') === '1';
+async function editPlate(plateId) {
+    try {
+        const response = await fetch(`/api/authorized-plates/${plateId}`);
+        const plate = await response.json();
+
+        document.getElementById('editPlateId').value = plateId;
+        document.getElementById('editPlateNumber').value = plate.plate_number;
+        document.getElementById('editDescription').value = plate.description;
+
+        new bootstrap.Modal(document.getElementById('editPlateModal')).show();
+    } catch (error) {
+        alert('Plaka bilgileri alınırken bir hata oluştu');
+    }
+}
+
+async function updatePlate() {
+    const plateId = document.getElementById('editPlateId').value;
+    const plateNumber = document.getElementById('editPlateNumber').value;
+    const description = document.getElementById('editDescription').value;
 
     try {
         const response = await fetch(`/api/authorized-plates/${plateId}`, {
@@ -131,7 +182,51 @@ async function togglePlateStatus(plateId) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                is_active: !currentStatus
+                plate_number: plateNumber,
+                description: description
+            })
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Plaka güncellenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Plaka güncellenirken bir hata oluştu');
+    }
+}
+
+async function deletePlate(plateId) {
+    if (!confirm('Bu plakayı silmek istediğinizden emin misiniz?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/authorized-plates/${plateId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Plaka silinirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Plaka silinirken bir hata oluştu');
+    }
+}
+
+async function togglePlateStatus(plateId) {
+    try {
+        const response = await fetch(`/api/authorized-plates/${plateId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                is_active: !document.querySelector(`span[data-plate-id="${plateId}"]`).classList.contains('bg-success')
             })
         });
 

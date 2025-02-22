@@ -133,6 +133,59 @@ def toggle_user_status(user_id):
 
     return jsonify({'status': 'success'})
 
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+@login_required
+@role_required(['admin'])
+def get_user(user_id):
+    from models import User
+    user = User.query.get_or_404(user_id)
+    return jsonify(user.to_dict())
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+@role_required(['admin'])
+def update_user(user_id):
+    from models import User
+    user = User.query.get_or_404(user_id)
+    data = request.get_json()
+
+    if user.username == current_user.username:
+        return jsonify({'error': 'Kendi hesabınızı bu şekilde düzenleyemezsiniz'}), 400
+
+    if 'username' in data and data['username'] != user.username:
+        if User.query.filter_by(username=data['username']).first():
+            return jsonify({'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
+        user.username = data['username']
+
+    if 'email' in data and data['email'] != user.email:
+        if User.query.filter_by(email=data['email']).first():
+            return jsonify({'error': 'Bu e-posta adresi zaten kullanılıyor'}), 400
+        user.email = data['email']
+
+    if 'password' in data and data['password']:
+        user.password_hash = generate_password_hash(data['password'])
+
+    if 'role' in data:
+        user.role = data['role']
+
+    db.session.commit()
+    return jsonify(user.to_dict())
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
+@role_required(['admin'])
+def delete_user(user_id):
+    from models import User
+    user = User.query.get_or_404(user_id)
+
+    if user.username == current_user.username:
+        return jsonify({'error': 'Kendi hesabınızı silemezsiniz'}), 400
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
 @app.route('/authorized-plates')
 @login_required
 def authorized_plates():
@@ -208,6 +261,32 @@ def update_authorized_plate(plate_id):
     db.session.commit()
     return jsonify(plate.to_dict())
 
+@app.route('/api/authorized-plates/<int:plate_id>', methods=['GET'])
+@login_required
+def get_plate(plate_id):
+    from models import AuthorizedPlate
+    plate = AuthorizedPlate.query.get_or_404(plate_id)
+    return jsonify(plate.to_dict())
+
+@app.route('/api/authorized-plates/<int:plate_id>', methods=['DELETE'])
+@login_required
+def delete_plate(plate_id):
+    from models import AuthorizedPlate, AuthorizationHistory
+    plate = AuthorizedPlate.query.get_or_404(plate_id)
+
+    # Yetkilendirme geçmişi kaydı
+    history = AuthorizationHistory(
+        plate_number=plate.plate_number,
+        action='delete',
+        description=f"Plaka silindi",
+        changed_by=current_user.username
+    )
+    db.session.add(history)
+
+    db.session.delete(plate)
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
 @app.route('/api/plates', methods=['GET'])
 @login_required
 def get_plates():
@@ -224,7 +303,7 @@ def add_plate():
 
     # Yetkili plaka kontrolü
     authorized_plate = AuthorizedPlate.query.filter_by(
-        plate_number=plate_number, 
+        plate_number=plate_number,
         is_active=True
     ).first()
 
