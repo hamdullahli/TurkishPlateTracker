@@ -32,7 +32,7 @@
                             <td>{{ plate.plate_number }}</td>
                             <td>{{ plate.description }}</td>
                             <td>
-                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}" data-plate-id="{{ plate.id }}" data-plate-status="{{ plate.is_active|int }}">
                                     {{ 'Aktif' if plate.is_active else 'Pasif' }}
                                 </span>
                             </td>
@@ -110,6 +110,9 @@ async function addNewPlate() {
 }
 
 async function togglePlateStatus(plateId) {
+    const statusBadge = document.querySelector(`span[data-plate-id="${plateId}"]`);
+    const currentStatus = statusBadge.getAttribute('data-plate-status') === '1';
+
     try {
         const response = await fetch(`/api/authorized-plates/${plateId}`, {
             method: 'PUT',
@@ -117,7 +120,7 @@ async function togglePlateStatus(plateId) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                is_active: document.querySelector(`[data-plate-id="${plateId}"]`).classList.contains('bg-danger')
+                is_active: !currentStatus
             })
         });
 
