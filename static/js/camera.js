@@ -1,15 +1,19 @@
+
 class CameraSimulator {
     constructor() {
         this.detectionBox = document.getElementById('detection-box');
-        this.isDetecting = false;
+        if (this.detectionBox) {
+            this.isDetecting = false;
+            this.start();
+        }
     }
 
     simulateDetection() {
-        if (this.isDetecting) return;
+        if (!this.detectionBox || this.isDetecting) return;
         
         this.isDetecting = true;
-        const width = Math.random() * 30 + 20; // 20-50% of width
-        const height = Math.random() * 10 + 5;  // 5-15% of height
+        const width = Math.random() * 30 + 20;
+        const height = Math.random() * 10 + 5;
         const left = Math.random() * (100 - width);
         const top = Math.random() * (100 - height);
 
@@ -31,6 +35,5 @@ class CameraSimulator {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const camera = new CameraSimulator();
-    camera.start();
+    new CameraSimulator();
 });
