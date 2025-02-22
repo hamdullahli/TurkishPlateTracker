@@ -1,12 +1,12 @@
 import os
 import logging
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
-import json
-from datetime import datetime
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -31,26 +31,23 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Lütfen önce giriş yapın.'
 
-# Mock user database (replace with proper database in production)
-USERS = {
-    "admin": generate_password_hash("admin123")
-}
-
-class User:
-    def __init__(self, username):
-        self.username = username
-        self.is_authenticated = True
-        self.is_active = True
-        self.is_anonymous = False
-
-    def get_id(self):
-        return self.username
+def role_required(roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return redirect(url_for('login'))
+            if current_user.role not in roles:
+                flash('Bu sayfaya erişim yetkiniz yok.')
+                return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 @login_manager.user_loader
-def load_user(username):
-    if username in USERS:
-        return User(username)
-    return None
+def load_user(user_id):
+    from models import User
+    return User.query.get(int(user_id))
 
 @app.route('/')
 @login_required
@@ -60,12 +57,15 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        from models import User
         username = request.form.get('username')
         password = request.form.get('password')
 
-        if username in USERS and check_password_hash(USERS[username], password):
-            user = User(username)
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password) and user.is_active:
             login_user(user)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
             return redirect(url_for('dashboard'))
 
         flash('Geçersiz kullanıcı adı veya şifre')
@@ -83,8 +83,57 @@ def logout():
 def dashboard():
     return render_template('dashboard.html')
 
+@app.route('/users')
+@login_required
+@role_required(['admin'])
+def users():
+    from models import User
+    users = User.query.all()
+    return render_template('users.html', users=users)
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def add_user():
+    from models import User
+    data = request.get_json()
+
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
+
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Bu e-posta adresi zaten kullanılıyor'}), 400
+
+    new_user = User(
+        username=data['username'],
+        email=data['email'],
+        password_hash=generate_password_hash(data['password']),
+        role=data['role']
+    )
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify(new_user.to_dict()), 201
+
+@app.route('/api/users/<int:user_id>/toggle-status', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def toggle_user_status(user_id):
+    from models import User
+    user = User.query.get_or_404(user_id)
+
+    if user.username == current_user.username:
+        return jsonify({'error': 'Kendi hesabınızı devre dışı bırakamazsınız'}), 400
+
+    user.is_active = not user.is_active
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+# Diğer route'lar aynı kalacak
 @app.route('/authorized-plates')
 @login_required
+@role_required(['admin', 'manager'])
 def authorized_plates():
     from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
@@ -99,6 +148,7 @@ def get_authorized_plates():
 
 @app.route('/api/authorized-plates', methods=['POST'])
 @login_required
+@role_required(['admin', 'manager'])
 def add_authorized_plate():
     from models import AuthorizedPlate
     data = request.get_json()
@@ -120,6 +170,7 @@ def add_authorized_plate():
 
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
 @login_required
+@role_required(['admin', 'manager'])
 def update_authorized_plate(plate_id):
     from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
@@ -208,8 +259,21 @@ def plate_history():
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
 
 with app.app_context():
-    from models import AuthorizedPlate, PlateRecord, AuthorizationHistory
+    from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory
     db.create_all()
+
+    # Admin kullanıcısı yoksa oluştur
+    admin_user = User.query.filter_by(username='admin').first()
+    if not admin_user:
+        admin_user = User(
+            username='admin',
+            email='admin@example.com',
+            password_hash=generate_password_hash('admin123'),
+            role='admin',
+            is_active=True
+        )
+        db.session.add(admin_user)
+        db.session.commit()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

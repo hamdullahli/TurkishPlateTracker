@@ -23,15 +23,27 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('dashboard') }}">Panel</a>
                     </li>
+                    {% if current_user.role in ['admin', 'manager'] %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('authorized_plates') }}">Yetkili Plakalar</a>
                     </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('plate_history') }}">Geçmiş</a>
                     </li>
+                    {% if current_user.role == 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('users') }}">Kullanıcı Yönetimi</a>
+                    </li>
+                    {% endif %}
                 </ul>
                 <div class="navbar-nav ms-auto">
-                    <span class="nav-link">{{ current_user.username }}</span>
+                    <span class="nav-link">
+                        {{ current_user.username }}
+                        <span class="badge bg-info">
+                            {{ {'admin': 'Yönetici', 'manager': 'Müdür', 'operator': 'Operatör'}[current_user.role] }}
+                        </span>
+                    </span>
                     <a class="nav-link" href="{{ url_for('logout') }}">Çıkış</a>
                 </div>
             </div>
