@@ -1,26 +1,22 @@
+
 import os
 import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
 from functools import wraps
+from models import db, User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-class Base(DeclarativeBase):
-    pass
-
-db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
 # Database configuration
-db_url = os.environ.get("DATABASE_URL")
+db_url = os.environ.get("DATABASE_URL", "sqlite:///plates.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -52,7 +48,6 @@ def role_required(roles):
 
 @login_manager.user_loader
 def load_user(user_id):
-    from models import User
     try:
         return User.query.get(int(user_id))
     except (ValueError, TypeError):
@@ -66,7 +61,6 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        from models import User
         username = request.form.get('username')
         password = request.form.get('password')
 
@@ -96,7 +90,6 @@ def dashboard():
 @login_required
 @role_required(['admin'])
 def users():
-    from models import User
     users = User.query.all()
     return render_template('users.html', users=users)
 
@@ -104,7 +97,6 @@ def users():
 @login_required
 @role_required(['admin'])
 def add_user():
-    from models import User
     data = request.get_json()
 
     if User.query.filter_by(username=data['username']).first():
@@ -128,7 +120,6 @@ def add_user():
 @login_required
 @role_required(['admin'])
 def toggle_user_status(user_id):
-    from models import User
     user = User.query.get_or_404(user_id)
 
     if user.username == current_user.username:
@@ -143,7 +134,6 @@ def toggle_user_status(user_id):
 @login_required
 @role_required(['admin'])
 def get_user(user_id):
-    from models import User
     user = User.query.get_or_404(user_id)
     return jsonify(user.to_dict())
 
@@ -151,7 +141,6 @@ def get_user(user_id):
 @login_required
 @role_required(['admin'])
 def update_user(user_id):
-    from models import User
     user = User.query.get_or_404(user_id)
     data = request.get_json()
 
@@ -181,7 +170,6 @@ def update_user(user_id):
 @login_required
 @role_required(['admin'])
 def delete_user(user_id):
-    from models import User
     user = User.query.get_or_404(user_id)
 
     if user.username == current_user.username:
@@ -191,25 +179,21 @@ def delete_user(user_id):
     db.session.commit()
     return jsonify({'status': 'success'})
 
-
 @app.route('/authorized-plates')
 @login_required
 def authorized_plates():
-    from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
     return render_template('authorized_plates.html', plates=plates)
 
 @app.route('/api/authorized-plates', methods=['GET'])
 @login_required
 def get_authorized_plates():
-    from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
     return jsonify([plate.to_dict() for plate in plates])
 
 @app.route('/api/authorized-plates', methods=['POST'])
 @login_required
 def add_authorized_plate():
-    from models import AuthorizedPlate
     data = request.get_json()
     plate_number = data.get('plate_number')
     description = data.get('description', '')
@@ -230,7 +214,6 @@ def add_authorized_plate():
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
 @login_required
 def update_authorized_plate(plate_id):
-    from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
     data = request.get_json()
 
@@ -287,14 +270,12 @@ def update_authorized_plate(plate_id):
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['GET'])
 @login_required
 def get_plate(plate_id):
-    from models import AuthorizedPlate
     plate = AuthorizedPlate.query.get_or_404(plate_id)
     return jsonify(plate.to_dict())
 
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['DELETE'])
 @login_required
 def delete_plate(plate_id):
-    from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
 
     # Yetkilendirme geçmişi kaydı
@@ -313,14 +294,12 @@ def delete_plate(plate_id):
 @app.route('/api/plates', methods=['GET'])
 @login_required
 def get_plates():
-    from models import PlateRecord
     plates = PlateRecord.query.all()
     return jsonify([plate.to_dict() for plate in plates])
 
 @app.route('/api/plates', methods=['POST'])
 @login_required
 def add_plate():
-    from models import AuthorizedPlate, PlateRecord
     plate_number = request.json.get('plate_number')
     confidence = request.json.get('confidence', 100)
 
@@ -357,7 +336,6 @@ def add_plate():
 @app.route('/plate-history')
 @login_required
 def plate_history():
-    from models import PlateRecord, AuthorizationHistory
     plate_records = PlateRecord.query.order_by(PlateRecord.timestamp.desc()).all()
     auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
@@ -366,7 +344,6 @@ def plate_history():
 @login_required
 @role_required(['admin'])
 def camera_settings():
-    from models import CameraSettings
     cameras = CameraSettings.query.all()
     return render_template('camera_settings.html', cameras=cameras)
 
@@ -374,7 +351,6 @@ def camera_settings():
 @login_required
 @role_required(['admin'])
 def get_cameras():
-    from models import CameraSettings
     cameras = CameraSettings.query.all()
     return jsonify([camera.to_dict() for camera in cameras])
 
@@ -382,7 +358,6 @@ def get_cameras():
 @login_required
 @role_required(['admin'])
 def add_camera():
-    from models import CameraSettings
     data = request.get_json()
 
     if not all(k in data for k in ['name', 'ip_address']):
@@ -395,8 +370,8 @@ def add_camera():
         username=data.get('username'),
         password=data.get('password'),
         settings=data.get('settings', {}),
-        stream_type=data.get('stream_type', 'http'), # Added stream_type
-        rtsp_path=data.get('rtsp_path', '/'), # Added rtsp_path
+        stream_type=data.get('stream_type', 'http'),
+        rtsp_path=data.get('rtsp_path', '/'),
     )
     db.session.add(new_camera)
     db.session.commit()
@@ -407,7 +382,6 @@ def add_camera():
 @login_required
 @role_required(['admin'])
 def get_camera(camera_id):
-    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     return jsonify(camera.to_dict())
 
@@ -415,7 +389,6 @@ def get_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def update_camera(camera_id):
-    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     data = request.get_json()
 
@@ -443,7 +416,6 @@ def update_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def delete_camera(camera_id):
-    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     db.session.delete(camera)
     db.session.commit()
@@ -453,7 +425,6 @@ def delete_camera(camera_id):
 @login_required
 @role_required(['admin'])
 def toggle_camera_status(camera_id):
-    from models import CameraSettings
     camera = CameraSettings.query.get_or_404(camera_id)
     camera.is_active = not camera.is_active
     db.session.commit()
@@ -463,7 +434,6 @@ def toggle_camera_status(camera_id):
 @login_required
 @role_required(['admin'])
 def test_camera_connection(camera_id):
-    from models import CameraSettings
     import cv2
     import requests
     from requests.exceptions import RequestException
@@ -533,7 +503,6 @@ def test_camera_connection(camera_id):
         }), 400
 
 with app.app_context():
-    from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
     db.create_all()
 
     # Admin kullanıcısı yoksa oluştur
