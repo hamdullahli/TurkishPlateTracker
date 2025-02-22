@@ -23,6 +23,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Nesne sınıfları (COCO veri setinden)
+COCO_LABELS = {
+    0: 'background', 1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle',
+    5: 'airplane', 6: 'bus', 7: 'train', 8: 'truck', 9: 'boat'
+}
+
 class PlateDetector:
     def __init__(self, api_url, api_token, model_path='model/plate_detect_edgetpu.tflite'):
         """
@@ -38,6 +44,7 @@ class PlateDetector:
             self.api_token = api_token
 
             # Initialize Edge TPU interpreter
+            logger.info(f"TPU modelini yükleme deneniyor: {model_path}")
             self.interpreter = edgetpu.make_interpreter(model_path)
             self.interpreter.allocate_tensors()
 
@@ -47,6 +54,7 @@ class PlateDetector:
             self.input_shape = self.input_details[0]['shape']
 
             logger.info("TPU destekli plaka algılama sistemi başlatıldı")
+            logger.info(f"Model giriş boyutu: {self.input_shape}")
         except Exception as e:
             logger.error(f"TPU başlatma hatası: {str(e)}")
             raise
@@ -60,11 +68,12 @@ class PlateDetector:
             input_shape = self.input_shape[1:3]
             processed_img = cv2.resize(frame, input_shape)
 
-            # Normalize pixel values
-            processed_img = processed_img.astype('float32') / 255.0
+            # Convert BGR to RGB
+            processed_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
 
-            # Add batch dimension
+            # Add batch dimension and convert to float32
             processed_img = np.expand_dims(processed_img, axis=0)
+            processed_img = processed_img.astype('float32')
 
             return processed_img
         except Exception as e:
@@ -73,7 +82,7 @@ class PlateDetector:
 
     def detect_plate_with_tpu(self, frame):
         """
-        Detect license plates using Edge TPU
+        Detect vehicles using Edge TPU and then find license plates
         """
         try:
             # Preprocess image
@@ -81,6 +90,7 @@ class PlateDetector:
             if input_data is None:
                 return []
 
+            logger.debug("TPU inference başlatılıyor")
             # Set input tensor
             self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
 
@@ -92,18 +102,53 @@ class PlateDetector:
             classes = self.interpreter.get_tensor(self.output_details[1]['index'])[0]
             scores = self.interpreter.get_tensor(self.output_details[2]['index'])[0]
 
-            # Filter detections by confidence threshold
+            # Filter detections by confidence threshold and vehicle classes
             valid_detections = []
             height, width = frame.shape[:2]
+            vehicle_classes = [2, 3, 4, 6, 8]  # bicycle, car, motorcycle, bus, truck
 
-            for i, score in enumerate(scores):
-                if score > 0.5:  # Confidence threshold
-                    ymin, xmin, ymax, xmax = boxes[i]
+            for i, (box, class_id, score) in enumerate(zip(boxes, classes, scores)):
+                if score > 0.5 and int(class_id) in vehicle_classes:
+                    logger.debug(f"Araç tespit edildi: {COCO_LABELS[int(class_id)]}, güven: {score:.2f}")
+
+                    # Get vehicle region
+                    ymin, xmin, ymax, xmax = box
                     xmin = int(xmin * width)
                     xmax = int(xmax * width)
                     ymin = int(ymin * height)
                     ymax = int(ymax * height)
-                    valid_detections.append((xmin, ymin, xmax - xmin, ymax - ymin))
+
+                    # Extract vehicle region
+                    vehicle_region = frame[ymin:ymax, xmin:xmax]
+                    if vehicle_region.size == 0:
+                        continue
+
+                    # Process vehicle region for plate detection
+                    gray = cv2.cvtColor(vehicle_region, cv2.COLOR_BGR2GRAY)
+                    gray = cv2.bilateralFilter(gray, 11, 17, 17)
+                    edged = cv2.Canny(gray, 30, 200)
+
+                    # Find contours in the edge image
+                    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+                    # Sort contours by area and keep the largest ones
+                    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+
+                    for contour in contours:
+                        # Approximate the contour
+                        peri = cv2.arcLength(contour, True)
+                        approx = cv2.approxPolyDP(contour, 0.018 * peri, True)
+
+                        if len(approx) == 4:  # Plaka genellikle 4 köşeli bir dikdörtgendir
+                            x, y, w, h = cv2.boundingRect(contour)
+                            aspect_ratio = float(w)/h
+
+                            # Türk plakalarının en-boy oranı genellikle 2 ile 5 arasındadır
+                            if 2.0 <= aspect_ratio <= 5.0:
+                                # Global koordinatlara dönüştür
+                                x_global = x + xmin
+                                y_global = y + ymin
+                                valid_detections.append((x_global, y_global, w, h))
 
             return valid_detections
 
@@ -137,32 +182,33 @@ class PlateDetector:
 
                 # Detect plates using TPU
                 plate_regions = self.detect_plate_with_tpu(frame)
-
                 current_time = time.time()
 
                 for plate_roi in plate_regions:
-                    # Extract plate region
                     x, y, w, h = plate_roi
                     plate_img = frame[y:y+h, x:x+w]
 
                     # Read plate text
-                    plate_text, confidence = self.read_plate(frame, plate_roi)
+                    try:
+                        plate_text, confidence = self.read_plate(plate_img)
+                        if plate_text and confidence > 0.6:
+                            # Check if we recently detected this plate
+                            if plate_text in last_detection_time:
+                                time_since_last = current_time - last_detection_time[plate_text]
+                                if time_since_last < min_detection_interval:
+                                    continue
 
-                    if plate_text and confidence > 0.6:
-                        # Check if we recently detected this plate
-                        if plate_text in last_detection_time:
-                            time_since_last = current_time - last_detection_time[plate_text]
-                            if time_since_last < min_detection_interval:
-                                continue
+                            logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
+                            self.send_plate_to_server(plate_text, confidence, camera_id)
+                            last_detection_time[plate_text] = current_time
 
-                        logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
-                        self.send_plate_to_server(plate_text, confidence, camera_id)
-                        last_detection_time[plate_text] = current_time
-
-                        # Draw detection on frame
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                        cv2.putText(frame, plate_text, (x, y-10),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                            # Draw detection on frame
+                            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                            cv2.putText(frame, plate_text, (x, y-10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    except Exception as e:
+                        logger.error(f"Plaka okuma hatası: {str(e)}")
+                        continue
 
                 # Add a small delay to prevent excessive CPU usage
                 time.sleep(0.1)
@@ -175,16 +221,16 @@ class PlateDetector:
             if 'cap' in locals():
                 cap.release()
 
-    def read_plate(self, img, roi):
+    def read_plate(self, img):
         """
         Use EasyOCR to read text from the plate region
         """
         try:
-            x, y, w, h = roi
-            plate_img = img[y:y+h, x:x+w]
+            if img is None or img.size == 0:
+                return None, 0
 
             # Use EasyOCR to read the text
-            results = self.reader.readtext(plate_img)
+            results = self.reader.readtext(img)
 
             if not results:
                 return None, 0
@@ -237,6 +283,7 @@ def main():
     MODEL_PATH = os.environ.get("TPU_MODEL_PATH", "model/plate_detect_edgetpu.tflite")
 
     # Initialize TPU-enabled plate detector
+    logger.info(f"PlateDetector başlatılıyor... Model: {MODEL_PATH}")
     detector = PlateDetector(API_URL, API_TOKEN, model_path=MODEL_PATH)
 
     # Check command line arguments for video file or RTSP URL
@@ -244,10 +291,10 @@ def main():
         source = sys.argv[1]
         if source.startswith('rtsp://'):
             logger.info(f"RTSP akışı işleniyor: {source}")
-            detector.process_camera_feed(source) #modified to handle RTSP stream directly
+            detector.process_camera_feed(source)
         else:
             logger.info(f"Video dosyası işleniyor: {source}")
-            detector.process_camera_feed(source) #modified to handle video file directly
+            detector.process_camera_feed(source)
     else:
         # Process camera feed by default
         detector.process_camera_feed(camera_id=CAMERA_ID)
