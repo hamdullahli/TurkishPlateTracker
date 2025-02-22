@@ -1,36 +1,62 @@
-class CameraSimulator {
+class CameraManager {
     constructor() {
-        this.detectionBox = document.getElementById('detection-box');
-        this.isDetecting = false;
+        this.cameraContainer = document.getElementById('camera-feed');
+        this.currentCameraId = null;
+        this.streamImg = null;
+        this.init();
     }
 
-    simulateDetection() {
-        if (this.isDetecting) return;
-        
-        this.isDetecting = true;
-        const width = Math.random() * 30 + 20; // 20-50% of width
-        const height = Math.random() * 10 + 5;  // 5-15% of height
-        const left = Math.random() * (100 - width);
-        const top = Math.random() * (100 - height);
+    async init() {
+        try {
+            // Get active cameras
+            const response = await fetch('/api/active_cameras');
+            const cameras = await response.json();
 
-        this.detectionBox.style.display = 'block';
-        this.detectionBox.style.width = `${width}%`;
-        this.detectionBox.style.height = `${height}%`;
-        this.detectionBox.style.left = `${left}%`;
-        this.detectionBox.style.top = `${top}%`;
-
-        setTimeout(() => {
-            this.detectionBox.style.display = 'none';
-            this.isDetecting = false;
-        }, 1000);
+            if (cameras && cameras.length > 0) {
+                this.setupCameraStream(cameras[0].id);
+            } else {
+                this.showNoActiveCameras();
+            }
+        } catch (error) {
+            console.error('Kamera bilgileri alınamadı:', error);
+            this.showError();
+        }
     }
 
-    start() {
-        setInterval(() => this.simulateDetection(), 3000);
+    setupCameraStream(cameraId) {
+        this.currentCameraId = cameraId;
+
+        // Clear existing content
+        this.cameraContainer.innerHTML = '';
+
+        // Create image element for the stream
+        this.streamImg = document.createElement('img');
+        this.streamImg.style.width = '100%';
+        this.streamImg.style.height = '100%';
+        this.streamImg.style.objectFit = 'contain';
+        this.streamImg.src = `/video_feed/${cameraId}`;
+
+        this.cameraContainer.appendChild(this.streamImg);
+    }
+
+    showNoActiveCameras() {
+        this.cameraContainer.innerHTML = `
+            <div class="alert alert-warning">
+                Aktif kamera bulunamadı. Lütfen kamera ayarlarından bir kamera ekleyin ve aktifleştirin.
+            </div>
+        `;
+    }
+
+    showError() {
+        this.cameraContainer.innerHTML = `
+            <div class="alert alert-danger">
+                Kamera görüntüsü alınamadı. Lütfen bağlantıyı kontrol edin.
+            </div>
+        `;
     }
 }
 
+// Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    const camera = new CameraSimulator();
-    camera.start();
+    const cameraManager = new CameraManager();
 });

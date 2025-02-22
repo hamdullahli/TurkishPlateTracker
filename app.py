@@ -1,11 +1,12 @@
 import os
 import logging
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from database import db, init_db
+import cv2
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -453,7 +454,6 @@ def test_camera_connection(camera_id):
             rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
 
             # OpenCV ile RTSP stream'ine bağlanmayı dene
-            import cv2
             cap = cv2.VideoCapture(rtsp_url)
             if not cap.isOpened():
                 return jsonify({
@@ -510,6 +510,43 @@ def test_camera_connection(camera_id):
             'status': 'error',
             'message': f'Bağlantı testi başarısız: {str(e)}'
         }), 400
+
+@app.route('/video_feed/<int:camera_id>')
+@login_required
+def video_feed(camera_id):
+    def generate_frames():
+        camera = CameraSettings.query.get_or_404(camera_id)
+        if not camera.is_active:
+            return
+
+        # Build RTSP URL
+        auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
+        if camera.stream_type == 'rtsp':
+            stream_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
+        else:
+            stream_url = f"http://{camera.ip_address}:{camera.port}/video_feed"
+
+        cap = cv2.VideoCapture(stream_url)
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
+            else:
+                ret, buffer = cv2.imencode('.jpg', frame)
+                frame = buffer.tobytes()
+                yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        cap.release()
+
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/api/active_cameras')
+@login_required
+def get_active_cameras():
+    cameras = CameraSettings.query.filter_by(is_active=True).all()
+    return jsonify([camera.to_dict() for camera in cameras])
 
 with app.app_context():
     db.create_all()
