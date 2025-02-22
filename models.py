@@ -1,16 +1,19 @@
 from datetime import datetime
 from app import db
 from flask_login import UserMixin
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON
 
 class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='operator')  # admin, operator
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_login = db.Column(db.DateTime)
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String(64), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    email = Column(String(120), unique=True, nullable=False)
+    role = Column(String(20), nullable=False, default='operator')  # admin, operator
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime)
 
     def to_dict(self):
         return {
@@ -24,19 +27,21 @@ class User(UserMixin, db.Model):
         }
 
 class CameraSettings(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    ip_address = db.Column(db.String(100), nullable=False)
-    port = db.Column(db.Integer, default=554)  # RTSP default port
-    username = db.Column(db.String(100))
-    password = db.Column(db.String(100))
-    rtsp_path = db.Column(db.String(200), default='/stream')  # RTSP stream path
-    stream_type = db.Column(db.String(50), default='rtsp')  # rtsp, http
-    is_active = db.Column(db.Boolean, default=True)
-    last_connected = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    settings = db.Column(db.JSON)  # Kamera özel ayarları (çözünürlük, FPS, vb.)
+    __tablename__ = 'camera_settings'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    ip_address = Column(String(100), nullable=False)
+    port = Column(Integer, default=554)  # RTSP default port
+    username = Column(String(100))
+    password = Column(String(100))
+    rtsp_path = Column(String(200), default='/stream')  # RTSP stream path
+    stream_type = Column(String(50), default='rtsp')  # rtsp, http
+    is_active = Column(Boolean, default=True)
+    last_connected = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    settings = Column(JSON)  # Kamera özel ayarları (çözünürlük, FPS, vb.)
 
     def to_dict(self):
         return {

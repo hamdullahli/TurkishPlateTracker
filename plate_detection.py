@@ -26,10 +26,14 @@ class PlateDetector:
         api_url: URL of the main system's API
         api_token: Token for API authentication
         """
-        self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
-        self.api_url = api_url
-        self.api_token = api_token
-        logger.info("Plaka algılama sistemi başlatıldı")
+        try:
+            self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
+            self.api_url = api_url
+            self.api_token = api_token
+            logger.info("Plaka algılama sistemi başlatıldı")
+        except Exception as e:
+            logger.error(f"Başlatma hatası: {str(e)}")
+            raise
 
     def setup_camera(self, camera_id=0, resolution=(1280, 720)):
         """

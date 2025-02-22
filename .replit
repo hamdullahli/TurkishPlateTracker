@@ -17,29 +17,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "License Plate Recognition Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Create Test Video"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "License Plate Detection"
 
-[[workflows.workflow]]
-name = "License Plate Recognition Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-agentRequireRestartOnSave = false
-
 [[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python main.py"
+task = "workflow.run"
+args = "Flask Server"
 
 [[workflows.workflow]]
 name = "Create Test Video"
@@ -76,6 +62,21 @@ author = 34368838
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "./start_with_git.sh"
+
+[[workflows.workflow]]
+name = "Flask Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000
