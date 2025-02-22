@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Plaka Geçmişi ve Yetkilendirmeler</h2>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-4" id="historyTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="plates-tab" data-bs-toggle="tab" data-bs-target="#plates" type="button">
+                Plaka Geçmişi
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="auth-tab" data-bs-toggle="tab" data-bs-target="#auth" type="button">
+                Yetkilendirme Geçmişi
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="historyTabContent">
+        <div class="tab-pane fade show active" id="plates">
+            <div class="card">
+                <div class="card-body">
+                    <table class="table" id="plateHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Plaka</th>
+                                <th>Tarih</th>
+                                <th>İşlem</th>
+                                <th>Güven Oranı</th>
+                                <th>İşlemi Yapan</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for record in plate_records %}
+                            <tr>
+                                <td>{{ record.plate_number }}</td>
+                                <td>{{ record.timestamp }}</td>
+                                <td>{{ record.action_taken }}</td>
+                                <td>{{ "%.2f"|format(record.confidence) }}%</td>
+                                <td>{{ record.processed_by }}</td>
+                                <td>
+                                    <span class="badge {% if record.is_authorized %}bg-success{% else %}bg-danger{% endif %}">
+                                        {{ 'Yetkili' if record.is_authorized else 'Yetkisiz' }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="auth">
+            <div class="card">
+                <div class="card-body">
+                    <table class="table" id="authHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Plaka</th>
+                                <th>İşlem</th>
+                                <th>Açıklama</th>
+                                <th>Değiştiren</th>
+                                <th>Tarih</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for history in auth_history %}
+                            <tr>
+                                <td>{{ history.plate_number }}</td>
+                                <td>{{ history.action }}</td>
+                                <td>{{ history.description }}</td>
+                                <td>{{ history.changed_by }}</td>
+                                <td>{{ history.timestamp }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    $('#plateHistoryTable').DataTable({
+        language: {
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/tr.json',
+        },
+        order: [[1, 'desc']],
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "Tümü"]],
+    });
+
+    $('#authHistoryTable').DataTable({
+        language: {
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/tr.json',
+        },
+        order: [[4, 'desc']],
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "Tümü"]],
+    });
+});
+</script>
+{% endblock %}

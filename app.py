@@ -121,14 +121,36 @@ def add_authorized_plate():
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
 @login_required
 def update_authorized_plate(plate_id):
-    from models import AuthorizedPlate
+    from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
     data = request.get_json()
 
     if 'is_active' in data:
+        old_status = plate.is_active
         plate.is_active = data['is_active']
+
+        # Yetkilendirme geçmişi kaydı
+        action = 'activate' if data['is_active'] else 'deactivate'
+        history = AuthorizationHistory(
+            plate_number=plate.plate_number,
+            action=action,
+            description=f"Plaka durumu değiştirildi: {'aktif' if data['is_active'] else 'pasif'}",
+            changed_by=current_user.username
+        )
+        db.session.add(history)
+
     if 'description' in data:
         plate.description = data['description']
+
+    if 'sensitivity' in data:
+        plate.sensitivity = data['sensitivity']
+        history = AuthorizationHistory(
+            plate_number=plate.plate_number,
+            action='update',
+            description=f"Hassasiyet ayarı güncellendi: {data['sensitivity']}",
+            changed_by=current_user.username
+        )
+        db.session.add(history)
 
     db.session.commit()
     return jsonify(plate.to_dict())
@@ -156,19 +178,37 @@ def add_plate():
     is_authorized = bool(authorized_plate)
     if authorized_plate:
         authorized_plate.last_access = datetime.utcnow()
+        if confidence < authorized_plate.sensitivity:
+            is_authorized = False
         db.session.commit()
 
-    new_plate = PlateRecord(plate_number=plate_number, confidence=confidence, is_authorized=is_authorized)
+    action_taken = "Kapı Açıldı" if is_authorized else "Erişim Reddedildi"
+    new_plate = PlateRecord(
+        plate_number=plate_number,
+        confidence=confidence,
+        is_authorized=is_authorized,
+        processed_by=current_user.username,
+        action_taken=action_taken
+    )
     db.session.add(new_plate)
     db.session.commit()
 
     return jsonify({
         'status': 'success',
-        'is_authorized': is_authorized
+        'is_authorized': is_authorized,
+        'action_taken': action_taken
     })
 
+@app.route('/plate-history')
+@login_required
+def plate_history():
+    from models import PlateRecord, AuthorizationHistory
+    plate_records = PlateRecord.query.order_by(PlateRecord.timestamp.desc()).all()
+    auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
+    return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
+
 with app.app_context():
-    from models import AuthorizedPlate, PlateRecord
+    from models import AuthorizedPlate, PlateRecord, AuthorizationHistory
     db.create_all()
 
 if __name__ == '__main__':
