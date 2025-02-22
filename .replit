@@ -27,10 +27,6 @@ args = "Create Test Video"
 task = "workflow.run"
 args = "License Plate Detection"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Git Auto Update"
-
 [[workflows.workflow]]
 name = "License Plate Recognition Server"
 author = "agent"
@@ -80,20 +76,6 @@ author = 34368838
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "./start_with_git.sh"
-
-[[workflows.workflow]]
-name = "Git Auto Update"
-author = "agent"
-
-[workflows.workflow.metadata]
-agentRequireRestartOnSave = false
-
-[[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "./git_auto_update.sh"
 
 [[ports]]
 localPort = 5000
