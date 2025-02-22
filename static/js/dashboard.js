@@ -104,3 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashboard = new Dashboard();
     setInterval(() => dashboard.simulateNewDetection(), 10000);
 });
+document.addEventListener('DOMContentLoaded', function() {
+    const cameraStream = document.getElementById('cameraStream');
+    if (cameraStream) {
+        cameraStream.src = '/video_feed';
+    }
+});
