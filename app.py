@@ -1,6 +1,3 @@
-from dotenv import load_dotenv
-load_dotenv()  # .env dosyasını yükle
-
 import os
 import logging
 from datetime import datetime
@@ -10,18 +7,28 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from database import db, init_db
 import cv2
-from plate_detection import PlateDetector # Added import
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+logger.info("Starting Flask application initialization...")
 
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET")
 
 # Initialize database
-init_db(app)
+logger.info("Initializing database connection...")
+try:
+    init_db(app)
+    logger.info("Database initialization successful")
+except Exception as e:
+    logger.error(f"Database initialization failed: {e}")
+    raise
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -32,6 +39,7 @@ login_manager.login_message = 'Lütfen önce giriş yapın.'
 # Import models after db initialization to avoid circular imports
 from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
 
+# Define decorators first
 def role_required(roles):
     def decorator(f):
         @wraps(f)
@@ -45,7 +53,6 @@ def role_required(roles):
         return decorated_function
     return decorator
 
-# Add API token auth decorator after the role_required decorator
 def api_token_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -63,9 +70,11 @@ def api_token_required(f):
 def load_user(user_id):
     try:
         return User.query.get(int(user_id))
-    except (ValueError, TypeError):
+    except Exception as e:
+        logger.error(f"Error loading user: {e}")
         return None
 
+# Routes
 @app.route('/')
 @login_required
 def index():
@@ -77,12 +86,15 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password) and user.is_active:
-            login_user(user)
-            user.last_login = datetime.utcnow()
-            db.session.commit()
-            return redirect(url_for('dashboard'))
+        try:
+            user = User.query.filter_by(username=username).first()
+            if user and check_password_hash(user.password_hash, password) and user.is_active:
+                login_user(user)
+                user.last_login = datetime.utcnow()
+                db.session.commit()
+                return redirect(url_for('dashboard'))
+        except Exception as e:
+            logger.error(f"Login error: {e}")
 
         flash('Geçersiz kullanıcı adı veya şifre')
     return render_template('login.html')
@@ -553,54 +565,20 @@ def video_feed(camera_id):
 
                 logger.info(f"Successfully connected to camera {camera_id}")
 
-                frame_count = 0
                 while True:
                     success, frame = cap.read()
                     if not success:
                         logger.error(f"Failed to read frame from camera {camera_id}")
                         break
 
-                    # Process every 3rd frame for plate detection to reduce CPU load
-                    if frame_count % 3 == 0 and plate_detector is not None:
-                        try:
-                            logger.debug(f"Processing frame {frame_count} for plate detection")
-                            # Preprocess image
-                            processed = plate_detector.preprocess_image(frame)
-                            if processed is not None:
-                                # Find possible plates
-                                possible_plates = plate_detector.find_plate_contours(processed)
-                                logger.debug(f"Found {len(possible_plates)} possible plates")
-
-                                # Process each possible plate
-                                for plate_roi in possible_plates:
-                                    # Try to read the plate
-                                    plate_text, confidence = plate_detector.read_plate(frame, plate_roi)
-
-                                    if plate_text and confidence > 0.6:  # Minimum confidence threshold
-                                        logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
-                                        # Draw rectangle around plate
-                                        x, y, w, h = plate_roi
-                                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                                        # Add text above the rectangle
-                                        cv2.putText(frame, f"{plate_text} ({confidence:.2f})", 
-                                                  (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                                  0.9, (0, 255, 0), 2)
-                                        # Send plate to server
-                                        plate_detector.send_plate_to_server(plate_text, confidence, camera_id)
-
-                        except Exception as e:
-                            logger.error(f"Error in plate detection: {str(e)}")
-
-                    frame_count += 1
-
-                    # Encode and stream the frame
+                    # Simply encode and stream the frame
                     ret, buffer = cv2.imencode('.jpg', frame)
                     if not ret:
                         logger.error(f"Failed to encode frame from camera {camera_id}")
                         break
                     frame = buffer.tobytes()
                     yield (b'--frame\r\n'
-                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
                 cap.release()
                 logger.info(f"Camera {camera_id} stream ended")
@@ -615,24 +593,37 @@ def video_feed(camera_id):
 @app.route('/api/active_cameras')
 @login_required
 def get_active_cameras():
-    cameras = CameraSettings.query.filter_by(is_active=True).all()
-    return jsonify([camera.to_dict() for camera in cameras])
+    try:
+        cameras = CameraSettings.query.filter_by(is_active=True).all()
+        return jsonify([camera.to_dict() for camera in cameras])
+    except Exception as e:
+        logger.error(f"Error getting active cameras: {e}")
+        return jsonify([])
 
-with app.app_context():
-    db.create_all()
-
-    # Admin kullanıcısı yoksa oluştur
-    admin_user = User.query.filter_by(username='admin').first()
-    if not admin_user:
-        admin_user = User(
-            username='admin',
-            email='admin@example.com',
-            password_hash=generate_password_hash('admin123'),
-            role='admin',
-            is_active=True
-        )
-        db.session.add(admin_user)
-        db.session.commit()
 
 if __name__ == '__main__':
+    logger.info("Initializing database tables...")
+    try:
+        with app.app_context():
+            db.create_all()
+
+            # Check for admin user
+            admin_user = User.query.filter_by(username='admin').first()
+            if not admin_user:
+                logger.info("Creating admin user...")
+                admin_user = User(
+                    username='admin',
+                    email='admin@example.com',
+                    password_hash=generate_password_hash('admin123'),
+                    role='admin',
+                    is_active=True
+                )
+                db.session.add(admin_user)
+                db.session.commit()
+                logger.info("Admin user created successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
+        raise
+
+    logger.info("Starting Flask server...")
     app.run(host='0.0.0.0', port=5000, debug=True)
