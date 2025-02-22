@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # .env dosyasını yükle
+
 import os
 import logging
 from datetime import datetime
