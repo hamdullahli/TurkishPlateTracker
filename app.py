@@ -133,10 +133,8 @@ def toggle_user_status(user_id):
 
     return jsonify({'status': 'success'})
 
-# Diğer route'lar aynı kalacak
 @app.route('/authorized-plates')
 @login_required
-@role_required(['admin', 'manager'])
 def authorized_plates():
     from models import AuthorizedPlate
     plates = AuthorizedPlate.query.all()
@@ -151,7 +149,6 @@ def get_authorized_plates():
 
 @app.route('/api/authorized-plates', methods=['POST'])
 @login_required
-@role_required(['admin', 'manager'])
 def add_authorized_plate():
     from models import AuthorizedPlate
     data = request.get_json()
@@ -173,7 +170,6 @@ def add_authorized_plate():
 
 @app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
 @login_required
-@role_required(['admin', 'manager'])
 def update_authorized_plate(plate_id):
     from models import AuthorizedPlate, AuthorizationHistory
     plate = AuthorizedPlate.query.get_or_404(plate_id)
@@ -197,6 +193,9 @@ def update_authorized_plate(plate_id):
         plate.description = data['description']
 
     if 'sensitivity' in data:
+        if current_user.role != 'admin':
+            return jsonify({'error': 'Hassasiyet ayarını sadece yöneticiler değiştirebilir'}), 403
+
         plate.sensitivity = data['sensitivity']
         history = AuthorizationHistory(
             plate_number=plate.plate_number,

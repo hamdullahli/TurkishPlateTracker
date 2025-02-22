@@ -36,7 +36,7 @@
                             <td>{{ user.email }}</td>
                             <td>
                                 <span class="badge bg-info">
-                                    {{ {'admin': 'Yönetici', 'manager': 'Müdür', 'operator': 'Operatör'}[user.role] }}
+                                    {{ {'admin': 'Yönetici', 'operator': 'Operatör'}[user.role] }}
                                 </span>
                             </td>
                             <td>
@@ -49,9 +49,6 @@
                                 {% if current_user.role == 'admin' and user.username != current_user.username %}
                                 <button class="btn btn-sm btn-outline-primary" onclick="toggleUserStatus({{ user.id }})">
                                     {{ 'Pasif Yap' if user.is_active else 'Aktif Yap' }}
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="editUser({{ user.id }})">
-                                    Düzenle
                                 </button>
                                 {% endif %}
                             </td>
@@ -90,7 +87,6 @@
                         <label for="role" class="form-label">Rol</label>
                         <select class="form-select" id="role" required>
                             <option value="operator">Operatör</option>
-                            <option value="manager">Müdür</option>
                             <option value="admin">Yönetici</option>
                         </select>
                     </div>
@@ -163,11 +159,6 @@ async function toggleUserStatus(userId) {
     } catch (error) {
         alert('Kullanıcı durumu güncellenirken bir hata oluştu');
     }
-}
-
-async function editUser(userId) {
-    // Bu fonksiyon daha sonra kullanıcı düzenleme modalını açacak
-    alert('Kullanıcı düzenleme özelliği yakında eklenecek');
 }
 </script>
 {% endblock %}
