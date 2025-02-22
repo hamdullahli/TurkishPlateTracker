@@ -10,6 +10,7 @@ from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     pass
@@ -17,7 +18,12 @@ class Base(DeclarativeBase):
 db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+
+# Database configuration
+db_url = os.environ.get("DATABASE_URL")
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
@@ -355,8 +361,6 @@ def plate_history():
     plate_records = PlateRecord.query.order_by(PlateRecord.timestamp.desc()).all()
     auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
-
-# Varolan kodun devamına eklenecek
 
 @app.route('/camera-settings')
 @login_required

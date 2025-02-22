@@ -18,4 +18,6 @@ dependencies = [
     "sqlalchemy>=2.0.38",
     "oauthlib>=3.2.2",
     "requests>=2.32.3",
+    "easyocr>=1.7.2",
+    "numpy>=2.2.3",
 ]

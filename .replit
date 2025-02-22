@@ -19,6 +19,14 @@ author = "agent"
 task = "workflow.run"
 args = "License Plate Recognition Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Create Test Video"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "License Plate Detection"
+
 [[workflows.workflow]]
 name = "License Plate Recognition Server"
 author = "agent"
@@ -33,6 +41,34 @@ task = "packager.installForAll"
 task = "shell.exec"
 args = "python main.py"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Create Test Video"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python create_test_video.py"
+
+[[workflows.workflow]]
+name = "License Plate Detection"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python plate_detection.py test_video.mp4"
 
 [[ports]]
 localPort = 5000
