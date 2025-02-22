@@ -1,5 +1,8 @@
-
 #!/bin/bash
+
+# Configure git credentials
+git config --global user.email "plaka.tanima@example.com"
+git config --global user.name "Plaka Tanima Sistemi"
 
 while true; do
     # Check for changes
@@ -7,11 +10,17 @@ while true; do
     git status | grep "Changes to be committed" > /dev/null
 
     if [ $? -eq 0 ]; then
-        echo "Changes detected, committing and pushing..."
-        git commit -m "Auto-update: $(date)"
-        git push
+        echo "Değişiklikler tespit edildi, commit ve push yapılıyor..."
+        git commit -m "Otomatik güncelleme: $(date)"
+
+        # Try to push changes
+        if git push origin main; then
+            echo "Değişiklikler başarıyla gönderildi"
+        else
+            echo "HATA: Değişiklikler gönderilemedi"
+        fi
     else
-        echo "No changes detected"
+        echo "Değişiklik tespit edilmedi"
     fi
 
     # Wait for 5 minutes before next check
