@@ -1,12 +1,12 @@
 import os
 import logging
 from datetime import datetime
-from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -17,23 +17,10 @@ class Base(DeclarativeBase):
 db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
-
-# Database configuration
-database_url = os.environ.get("DATABASE_URL")
-if database_url and database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
-
-app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
-    "connect_args": {
-        "options": "-c search_path=public",
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5
-    }
 }
 
 db.init_app(app)
@@ -97,9 +84,7 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    from models import CameraSettings
-    cameras = CameraSettings.query.filter_by(is_active=True).all()
-    return render_template('dashboard.html', cameras=cameras)
+    return render_template('dashboard.html')
 
 @app.route('/users')
 @login_required
@@ -371,48 +356,7 @@ def plate_history():
     auth_history = AuthorizationHistory.query.order_by(AuthorizationHistory.timestamp.desc()).all()
     return render_template('plate_history.html', plate_records=plate_records, auth_history=auth_history)
 
-# New routes added here
-@app.route('/api/stream/<int:camera_id>')
-@login_required
-def stream(camera_id):
-    from models import CameraSettings
-    import cv2
-
-    camera = CameraSettings.query.get_or_404(camera_id)
-    if not camera.is_active:
-        return jsonify({'error': 'Camera is not active'}), 400
-
-    def generate_frames():
-        # RTSP URL oluştur
-        auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
-        if camera.stream_type == 'rtsp':
-            stream_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-        else:
-            stream_url = f"http://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-
-        cap = cv2.VideoCapture(stream_url)
-        while True:
-            success, frame = cap.read()
-            if not success:
-                break
-
-            # Frame'i JPEG formatına dönüştür
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if not ret:
-                continue
-
-            # Frame'i byte dizisine çevir
-            frame_bytes = buffer.tobytes()
-
-            # Multipart response formatında gönder
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-        cap.release()
-
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
+# Varolan kodun devamına eklenecek
 
 @app.route('/camera-settings')
 @login_required
@@ -584,7 +528,6 @@ def test_camera_connection(camera_id):
             'message': f'Bağlantı testi başarısız: {str(e)}'
         }), 400
 
-from functools import wraps
 with app.app_context():
     from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
     db.create_all()
