@@ -10,6 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from database import db, init_db
 import cv2
+from plate_detection import PlateDetector # Added import
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -514,6 +515,12 @@ def test_camera_connection(camera_id):
             'message': f'Bağlantı testi başarısız: {str(e)}'
         }), 400
 
+# Initialize plate detector
+plate_detector = PlateDetector(
+    api_url=f"http://localhost:5000",
+    api_token=os.environ.get("API_TOKEN", "test-token-123")
+)
+
 @app.route('/video_feed/<int:camera_id>')
 @login_required
 def video_feed(camera_id):
@@ -542,19 +549,47 @@ def video_feed(camera_id):
 
                 logger.info(f"Successfully connected to camera {camera_id}")
 
+                frame_count = 0
                 while True:
                     success, frame = cap.read()
                     if not success:
                         logger.error(f"Failed to read frame from camera {camera_id}")
                         break
-                    else:
-                        ret, buffer = cv2.imencode('.jpg', frame)
-                        if not ret:
-                            logger.error(f"Failed to encode frame from camera {camera_id}")
-                            break
-                        frame = buffer.tobytes()
-                        yield (b'--frame\r\n'
-                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+                    # Process every 3rd frame for plate detection to reduce CPU load
+                    if frame_count % 3 == 0:
+                        try:
+                            # Preprocess image
+                            processed = plate_detector.preprocess_image(frame)
+                            # Find possible plates
+                            possible_plates = plate_detector.find_plate_contours(processed)
+
+                            # Process each possible plate
+                            for plate_roi in possible_plates:
+                                # Try to read the plate
+                                plate_text, confidence = plate_detector.read_plate(frame, plate_roi)
+
+                                if plate_text and confidence > 0.6:  # Minimum confidence threshold
+                                    logger.info(f"Detected plate: {plate_text} (Confidence: {confidence:.2f})")
+                                    # Draw rectangle around plate
+                                    x, y, w, h = plate_roi
+                                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                                    # Send plate to server
+                                    plate_detector.send_plate_to_server(plate_text, confidence, camera_id)
+
+                        except Exception as e:
+                            logger.error(f"Error in plate detection: {str(e)}")
+
+                    frame_count += 1
+
+                    # Encode and stream the frame
+                    ret, buffer = cv2.imencode('.jpg', frame)
+                    if not ret:
+                        logger.error(f"Failed to encode frame from camera {camera_id}")
+                        break
+                    frame = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
                 cap.release()
                 logger.info(f"Camera {camera_id} stream ended")
