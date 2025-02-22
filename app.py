@@ -454,16 +454,42 @@ def toggle_camera_status(camera_id):
 @role_required(['admin'])
 def test_camera_connection(camera_id):
     from models import CameraSettings
+    import requests
+    from requests.exceptions import RequestException
+
     camera = CameraSettings.query.get_or_404(camera_id)
 
-    # Burada kamera bağlantı testi yapılacak
-    # Şimdilik mock bir yanıt dönüyoruz
-    success = True
-    if success:
-        camera.last_connected = datetime.utcnow()
-        db.session.commit()
-        return jsonify({'status': 'success', 'message': 'Kamera bağlantısı başarılı'})
-    return jsonify({'status': 'error', 'message': 'Kamera bağlantısı başarısız'})
+    try:
+        # HTTP ve HTTPS protokollerini dene
+        protocols = ['http', 'https']
+        for protocol in protocols:
+            try:
+                url = f"{protocol}://{camera.ip_address}:{camera.port}"
+                auth = None
+                if camera.username and camera.password:
+                    auth = (camera.username, camera.password)
+
+                response = requests.get(url, auth=auth, timeout=5)
+                if response.status_code == 200:
+                    camera.last_connected = datetime.utcnow()
+                    db.session.commit()
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'Kamera bağlantısı başarılı (Protocol: {protocol})'
+                    })
+            except RequestException:
+                continue
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Kamera bağlantısı başarısız: Sunucuya erişilemiyor'
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Kamera bağlantısı başarısız: {str(e)}'
+        }), 400
 
 with app.app_context():
     from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
