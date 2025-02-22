@@ -22,6 +22,7 @@
                             <th>Kamera Adı</th>
                             <th>IP Adresi</th>
                             <th>Port</th>
+                            <th>Stream Tipi</th>
                             <th>Durum</th>
                             <th>Son Bağlantı</th>
                             <th>İşlemler</th>
@@ -33,6 +34,7 @@
                             <td>{{ camera.name }}</td>
                             <td>{{ camera.ip_address }}</td>
                             <td>{{ camera.port }}</td>
+                            <td>{{ camera.stream_type.upper() }}</td>
                             <td>
                                 <span class="badge {% if camera.is_active %}bg-success{% else %}bg-danger{% endif %}">
                                     {{ 'Aktif' if camera.is_active else 'Pasif' }}
@@ -81,8 +83,19 @@
                         <input type="text" class="form-control" id="ip_address" required>
                     </div>
                     <div class="mb-3">
+                        <label for="stream_type" class="form-label">Stream Tipi</label>
+                        <select class="form-select" id="stream_type" onchange="updatePortBasedOnStreamType()">
+                            <option value="rtsp">RTSP</option>
+                            <option value="http">HTTP</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label for="port" class="form-label">Port</label>
-                        <input type="number" class="form-control" id="port" value="80">
+                        <input type="number" class="form-control" id="port" value="554">
+                    </div>
+                    <div class="mb-3">
+                        <label for="rtsp_path" class="form-label">RTSP Yolu</label>
+                        <input type="text" class="form-control" id="rtsp_path" value="/stream">
                     </div>
                     <div class="mb-3">
                         <label for="username" class="form-label">Kullanıcı Adı</label>
@@ -93,7 +106,7 @@
                         <input type="password" class="form-control" id="password">
                     </div>
                     <div class="mb-3">
-                        <label for="settings" class="form-label">Kamera Ayarları</label>
+                        <label class="form-label">Kamera Ayarları</label>
                         <div class="row">
                             <div class="col-md-6">
                                 <label for="resolution" class="form-label">Çözünürlük</label>
@@ -139,8 +152,19 @@
                         <input type="text" class="form-control" id="editIpAddress" required>
                     </div>
                     <div class="mb-3">
+                        <label for="editStreamType" class="form-label">Stream Tipi</label>
+                        <select class="form-select" id="editStreamType" onchange="updateEditPortBasedOnStreamType()">
+                            <option value="rtsp">RTSP</option>
+                            <option value="http">HTTP</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label for="editPort" class="form-label">Port</label>
                         <input type="number" class="form-control" id="editPort">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editRtspPath" class="form-label">RTSP Yolu</label>
+                        <input type="text" class="form-control" id="editRtspPath">
                     </div>
                     <div class="mb-3">
                         <label for="editUsername" class="form-label">Kullanıcı Adı</label>
@@ -151,7 +175,7 @@
                         <input type="password" class="form-control" id="editPassword">
                     </div>
                     <div class="mb-3">
-                        <label for="editSettings" class="form-label">Kamera Ayarları</label>
+                        <label class="form-label">Kamera Ayarları</label>
                         <div class="row">
                             <div class="col-md-6">
                                 <label for="editResolution" class="form-label">Çözünürlük</label>
@@ -191,11 +215,25 @@ $(document).ready(function() {
     });
 });
 
+function updatePortBasedOnStreamType() {
+    const streamType = document.getElementById('stream_type').value;
+    const portInput = document.getElementById('port');
+    portInput.value = streamType === 'rtsp' ? '554' : '80';
+}
+
+function updateEditPortBasedOnStreamType() {
+    const streamType = document.getElementById('editStreamType').value;
+    const portInput = document.getElementById('editPort');
+    portInput.value = streamType === 'rtsp' ? '554' : '80';
+}
+
 async function addNewCamera() {
     const data = {
         name: document.getElementById('name').value,
         ip_address: document.getElementById('ip_address').value,
         port: parseInt(document.getElementById('port').value),
+        stream_type: document.getElementById('stream_type').value,
+        rtsp_path: document.getElementById('rtsp_path').value,
         username: document.getElementById('username').value,
         password: document.getElementById('password').value,
         settings: {
@@ -232,7 +270,9 @@ async function editCamera(cameraId) {
         document.getElementById('editCameraId').value = cameraId;
         document.getElementById('editName').value = camera.name;
         document.getElementById('editIpAddress').value = camera.ip_address;
+        document.getElementById('editStreamType').value = camera.stream_type;
         document.getElementById('editPort').value = camera.port;
+        document.getElementById('editRtspPath').value = camera.rtsp_path;
         document.getElementById('editUsername').value = camera.username;
         document.getElementById('editResolution').value = camera.settings.resolution;
         document.getElementById('editFps').value = camera.settings.fps;
@@ -249,6 +289,8 @@ async function updateCamera() {
         name: document.getElementById('editName').value,
         ip_address: document.getElementById('editIpAddress').value,
         port: parseInt(document.getElementById('editPort').value),
+        stream_type: document.getElementById('editStreamType').value,
+        rtsp_path: document.getElementById('editRtspPath').value,
         username: document.getElementById('editUsername').value,
         settings: {
             resolution: document.getElementById('editResolution').value,

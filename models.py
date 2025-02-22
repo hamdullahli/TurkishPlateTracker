@@ -27,9 +27,11 @@ class CameraSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     ip_address = db.Column(db.String(100), nullable=False)
-    port = db.Column(db.Integer, default=80)
+    port = db.Column(db.Integer, default=554)  # RTSP default port
     username = db.Column(db.String(100))
     password = db.Column(db.String(100))
+    rtsp_path = db.Column(db.String(200), default='/stream')  # RTSP stream path
+    stream_type = db.Column(db.String(50), default='rtsp')  # rtsp, http
     is_active = db.Column(db.Boolean, default=True)
     last_connected = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -44,6 +46,8 @@ class CameraSettings(db.Model):
             'port': self.port,
             'username': self.username,
             'is_active': self.is_active,
+            'rtsp_path': self.rtsp_path,
+            'stream_type': self.stream_type,
             'last_connected': self.last_connected.isoformat() if self.last_connected else None,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),

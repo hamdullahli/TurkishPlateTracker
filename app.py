@@ -390,7 +390,9 @@ def add_camera():
         port=data.get('port', 80),
         username=data.get('username'),
         password=data.get('password'),
-        settings=data.get('settings', {})
+        settings=data.get('settings', {}),
+        stream_type=data.get('stream_type', 'http'), # Added stream_type
+        rtsp_path=data.get('rtsp_path', '/'), # Added rtsp_path
     )
     db.session.add(new_camera)
     db.session.commit()
@@ -425,6 +427,10 @@ def update_camera(camera_id):
         camera.password = data['password']
     if 'settings' in data:
         camera.settings = data['settings']
+    if 'stream_type' in data:
+        camera.stream_type = data['stream_type']
+    if 'rtsp_path' in data:
+        camera.rtsp_path = data['rtsp_path']
 
     db.session.commit()
     return jsonify(camera.to_dict())
@@ -454,41 +460,72 @@ def toggle_camera_status(camera_id):
 @role_required(['admin'])
 def test_camera_connection(camera_id):
     from models import CameraSettings
+    import cv2
     import requests
     from requests.exceptions import RequestException
 
     camera = CameraSettings.query.get_or_404(camera_id)
 
     try:
-        # HTTP ve HTTPS protokollerini dene
-        protocols = ['http', 'https']
-        for protocol in protocols:
-            try:
-                url = f"{protocol}://{camera.ip_address}:{camera.port}"
-                auth = None
-                if camera.username and camera.password:
-                    auth = (camera.username, camera.password)
+        if camera.stream_type == 'rtsp':
+            # RTSP bağlantı URL'ini oluştur
+            auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
+            rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
 
-                response = requests.get(url, auth=auth, timeout=5)
-                if response.status_code == 200:
-                    camera.last_connected = datetime.utcnow()
-                    db.session.commit()
-                    return jsonify({
-                        'status': 'success',
-                        'message': f'Kamera bağlantısı başarılı (Protocol: {protocol})'
-                    })
-            except RequestException:
-                continue
+            # OpenCV ile RTSP stream'ine bağlanmayı dene
+            cap = cv2.VideoCapture(rtsp_url)
+            if not cap.isOpened():
+                return jsonify({
+                    'status': 'error',
+                    'message': 'RTSP bağlantısı başarısız: Stream açılamadı'
+                }), 400
 
-        return jsonify({
-            'status': 'error',
-            'message': 'Kamera bağlantısı başarısız: Sunucuya erişilemiyor'
-        }), 400
+            # İlk frame'i al
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'RTSP bağlantısı başarısız: Frame okunamadı'
+                }), 400
+
+            camera.last_connected = datetime.utcnow()
+            db.session.commit()
+            return jsonify({
+                'status': 'success',
+                'message': 'RTSP bağlantısı başarılı'
+            })
+
+        else:  # HTTP bağlantısı için
+            protocols = ['http', 'https']
+            for protocol in protocols:
+                try:
+                    url = f"{protocol}://{camera.ip_address}:{camera.port}"
+                    auth = None
+                    if camera.username and camera.password:
+                        auth = (camera.username, camera.password)
+
+                    response = requests.get(url, auth=auth, timeout=5)
+                    if response.status_code == 200:
+                        camera.last_connected = datetime.utcnow()
+                        db.session.commit()
+                        return jsonify({
+                            'status': 'success',
+                            'message': f'HTTP bağlantısı başarılı (Protocol: {protocol})'
+                        })
+                except RequestException:
+                    continue
+
+            return jsonify({
+                'status': 'error',
+                'message': 'HTTP bağlantısı başarısız: Sunucuya erişilemiyor'
+            }), 400
 
     except Exception as e:
         return jsonify({
             'status': 'error',
-            'message': f'Kamera bağlantısı başarısız: {str(e)}'
+            'message': f'Bağlantı testi başarısız: {str(e)}'
         }), 400
 
 with app.app_context():
