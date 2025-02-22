@@ -4,6 +4,9 @@
 git config --global user.email "plaka.tanima@example.com"
 git config --global user.name "Plaka Tanima Sistemi"
 
+# Configure GitHub token-based authentication
+git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
 while true; do
     # Check for changes
     git add .
