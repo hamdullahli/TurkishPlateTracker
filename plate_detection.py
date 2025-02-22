@@ -27,7 +27,6 @@ class PlateDetector:
         api_token: Token for API authentication
         """
         try:
-            logger.info("Initializing EasyOCR for Turkish license plates...")
             self.reader = easyocr.Reader(['tr'])  # Turkish language for license plates
             self.api_url = api_url
             self.api_token = api_token

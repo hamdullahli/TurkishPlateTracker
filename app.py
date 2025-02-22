@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # .env dosyasını yükle
+
 import os
 import logging
 from datetime import datetime
@@ -8,27 +11,16 @@ from functools import wraps
 from database import db, init_db
 import cv2
 
-# Configure logging with more detail
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-logger.info("Starting Flask application initialization...")
 
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET")
 
 # Initialize database
-logger.info("Initializing database connection...")
-try:
-    init_db(app)
-    logger.info("Database initialization successful")
-except Exception as e:
-    logger.error(f"Database initialization failed: {e}")
-    raise
+init_db(app)
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -39,7 +31,6 @@ login_manager.login_message = 'Lütfen önce giriş yapın.'
 # Import models after db initialization to avoid circular imports
 from models import User, AuthorizedPlate, PlateRecord, AuthorizationHistory, CameraSettings
 
-# Define decorators first
 def role_required(roles):
     def decorator(f):
         @wraps(f)
@@ -53,6 +44,7 @@ def role_required(roles):
         return decorated_function
     return decorator
 
+# Add API token auth decorator after the role_required decorator
 def api_token_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -70,11 +62,9 @@ def api_token_required(f):
 def load_user(user_id):
     try:
         return User.query.get(int(user_id))
-    except Exception as e:
-        logger.error(f"Error loading user: {e}")
+    except (ValueError, TypeError):
         return None
 
-# Routes
 @app.route('/')
 @login_required
 def index():
@@ -86,15 +76,12 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        try:
-            user = User.query.filter_by(username=username).first()
-            if user and check_password_hash(user.password_hash, password) and user.is_active:
-                login_user(user)
-                user.last_login = datetime.utcnow()
-                db.session.commit()
-                return redirect(url_for('dashboard'))
-        except Exception as e:
-            logger.error(f"Login error: {e}")
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password) and user.is_active:
+            login_user(user)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            return redirect(url_for('dashboard'))
 
         flash('Geçersiz kullanıcı adı veya şifre')
     return render_template('login.html')
@@ -527,29 +514,19 @@ def test_camera_connection(camera_id):
             'message': f'Bağlantı testi başarısız: {str(e)}'
         }), 400
 
-# Initialize plate detector with proper logging
-try:
-    logger.info("Initializing plate detector...")
-    plate_detector = PlateDetector(
-        api_url=f"http://localhost:5000",
-        api_token=os.environ.get("API_TOKEN", "test-token-123")
-    )
-    logger.info("Plate detector initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize plate detector: {str(e)}")
-    plate_detector = None
-
 @app.route('/video_feed/<int:camera_id>')
 @login_required
 def video_feed(camera_id):
     def generate_frames():
         try:
+            # Use application context
             with app.app_context():
                 camera = CameraSettings.query.get_or_404(camera_id)
                 if not camera.is_active:
                     logger.warning(f"Camera {camera_id} is not active")
                     return
 
+                # Build RTSP URL
                 auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
                 if camera.stream_type == 'rtsp':
                     stream_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
@@ -570,15 +547,14 @@ def video_feed(camera_id):
                     if not success:
                         logger.error(f"Failed to read frame from camera {camera_id}")
                         break
-
-                    # Simply encode and stream the frame
-                    ret, buffer = cv2.imencode('.jpg', frame)
-                    if not ret:
-                        logger.error(f"Failed to encode frame from camera {camera_id}")
-                        break
-                    frame = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    else:
+                        ret, buffer = cv2.imencode('.jpg', frame)
+                        if not ret:
+                            logger.error(f"Failed to encode frame from camera {camera_id}")
+                            break
+                        frame = buffer.tobytes()
+                        yield (b'--frame\r\n'
+                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
                 cap.release()
                 logger.info(f"Camera {camera_id} stream ended")
@@ -593,37 +569,24 @@ def video_feed(camera_id):
 @app.route('/api/active_cameras')
 @login_required
 def get_active_cameras():
-    try:
-        cameras = CameraSettings.query.filter_by(is_active=True).all()
-        return jsonify([camera.to_dict() for camera in cameras])
-    except Exception as e:
-        logger.error(f"Error getting active cameras: {e}")
-        return jsonify([])
+    cameras = CameraSettings.query.filter_by(is_active=True).all()
+    return jsonify([camera.to_dict() for camera in cameras])
 
+with app.app_context():
+    db.create_all()
+
+    # Admin kullanıcısı yoksa oluştur
+    admin_user = User.query.filter_by(username='admin').first()
+    if not admin_user:
+        admin_user = User(
+            username='admin',
+            email='admin@example.com',
+            password_hash=generate_password_hash('admin123'),
+            role='admin',
+            is_active=True
+        )
+        db.session.add(admin_user)
+        db.session.commit()
 
 if __name__ == '__main__':
-    logger.info("Initializing database tables...")
-    try:
-        with app.app_context():
-            db.create_all()
-
-            # Check for admin user
-            admin_user = User.query.filter_by(username='admin').first()
-            if not admin_user:
-                logger.info("Creating admin user...")
-                admin_user = User(
-                    username='admin',
-                    email='admin@example.com',
-                    password_hash=generate_password_hash('admin123'),
-                    role='admin',
-                    is_active=True
-                )
-                db.session.add(admin_user)
-                db.session.commit()
-                logger.info("Admin user created successfully")
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}")
-        raise
-
-    logger.info("Starting Flask server...")
     app.run(host='0.0.0.0', port=5000, debug=True)
