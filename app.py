@@ -1,4 +1,3 @@
-
 import os
 import logging
 import cv2
@@ -62,21 +61,19 @@ def index():
 @app.route('/video_feed')
 @login_required
 def video_feed():
+    """Video akışı endpoint'i"""
     camera = CameraSettings.query.filter_by(is_active=True).first()
     if not camera:
         return "No active camera found", 404
-        
+
     detector = PlateDetector(f"http://{request.host}")
     auth = f"{camera.username}:{camera.password}@" if camera.username and camera.password else ""
     rtsp_url = f"rtsp://{auth}{camera.ip_address}:{camera.port}{camera.rtsp_path}"
-    
+
     return Response(
         detector.process_rtsp_stream(rtsp_url),
         mimetype='multipart/x-mixed-replace; boundary=frame'
     )
-
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():

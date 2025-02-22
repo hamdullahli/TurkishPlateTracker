@@ -68,7 +68,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python plate_detection.py test_video.mp4"
+args = "python plate_detection.py rtsp://admin:admin123@localhost:554/stream"
 
 [[ports]]
 localPort = 5000
