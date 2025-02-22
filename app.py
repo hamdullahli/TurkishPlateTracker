@@ -4,19 +4,13 @@ from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
 from functools import wraps
+from database import db
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-class Base(DeclarativeBase):
-    pass
-
-# Initialize SQLAlchemy with the Base class
-db = SQLAlchemy(model_class=Base)
 
 # Create Flask app
 app = Flask(__name__)
@@ -209,7 +203,6 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({'status': 'success'})
-
 
 @app.route('/authorized-plates')
 @login_required
