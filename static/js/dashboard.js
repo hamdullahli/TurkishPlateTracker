@@ -4,6 +4,19 @@ class Dashboard {
         this.chart = null;
         this.initChart();
         this.startDataPolling();
+        this.initCamera();
+    }
+
+    initCamera() {
+        const cameraStream = document.getElementById('cameraStream');
+        if (cameraStream) {
+            cameraStream.onerror = (error) => {
+                console.error('Kamera stream hatası:', error);
+                // Hata durumunda 5 saniye sonra yeniden dene
+                setTimeout(() => this.initCamera(), 5000);
+            };
+            cameraStream.src = '/video_feed';
+        }
     }
 
     initChart() {
@@ -44,6 +57,9 @@ class Dashboard {
     async fetchPlates() {
         try {
             const response = await fetch('/api/plates');
+            if (!response.ok) {
+                throw new Error('Plaka verisi alınamadı');
+            }
             const plates = await response.json();
             this.updatePlatesList(plates);
             this.updateChart(plates);
@@ -53,6 +69,8 @@ class Dashboard {
     }
 
     updatePlatesList(plates) {
+        if (!this.platesContainer) return;
+
         const latest = plates.slice(-5).reverse();
         this.platesContainer.innerHTML = latest.map(plate => `
             <div class="plate-entry">
@@ -67,15 +85,15 @@ class Dashboard {
     }
 
     updateChart(plates) {
-        const hourlyData = new Map();
+        if (!this.chart) return;
 
+        const hourlyData = new Map();
         plates.forEach(plate => {
             const hour = new Date(plate.timestamp).getHours();
             hourlyData.set(hour, (hourlyData.get(hour) || 0) + 1);
         });
 
         const sortedHours = Array.from(hourlyData.keys()).sort((a, b) => a - b);
-
         this.chart.data.labels = sortedHours.map(hour => `${hour}:00`);
         this.chart.data.datasets[0].data = sortedHours.map(hour => hourlyData.get(hour));
         this.chart.update();
@@ -87,10 +105,7 @@ class Dashboard {
     }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    const cameraStream = document.getElementById('cameraStream');
-    if (cameraStream) {
-        cameraStream.src = '/video_feed';
-    }
+// Sayfa yüklendiğinde Dashboard'ı başlat
+document.addEventListener('DOMContentLoaded', () => {
     new Dashboard();
 });
