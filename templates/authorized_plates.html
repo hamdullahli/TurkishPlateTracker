@@ -32,7 +32,7 @@
                             <td>{{ plate.plate_number }}</td>
                             <td>{{ plate.description }}</td>
                             <td>
-                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}" data-plate-id="{{ plate.id }}">
                                     {{ 'Aktif' if plate.is_active else 'Pasif' }}
                                 </span>
                             </td>
@@ -220,20 +220,24 @@ async function deletePlate(plateId) {
 
 async function togglePlateStatus(plateId) {
     try {
+        const badge = document.querySelector(`span[data-plate-id="${plateId}"]`);
+        const isCurrentlyActive = badge.classList.contains('bg-success');
+
         const response = await fetch(`/api/authorized-plates/${plateId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                is_active: !document.querySelector(`span[data-plate-id="${plateId}"]`).classList.contains('bg-success')
+                is_active: !isCurrentlyActive
             })
         });
 
         if (response.ok) {
             location.reload();
         } else {
-            alert('Plaka durumu güncellenirken bir hata oluştu');
+            const data = await response.json();
+            alert(data.error || 'Plaka durumu güncellenirken bir hata oluştu');
         }
     } catch (error) {
         alert('Plaka durumu güncellenirken bir hata oluştu');

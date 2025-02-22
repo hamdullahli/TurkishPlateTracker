@@ -7,8 +7,18 @@ class Dashboard {
     }
 
     initChart() {
-        const ctx = document.getElementById('detectionChart').getContext('2d');
-        this.chart = new Chart(ctx, {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js is not loaded');
+            return;
+        }
+
+        const ctx = document.getElementById('detectionChart');
+        if (!ctx) {
+            console.error('Canvas element not found');
+            return;
+        }
+
+        this.chart = new Chart(ctx.getContext('2d'), {
             type: 'line',
             data: {
                 labels: [],
@@ -53,6 +63,11 @@ class Dashboard {
     }
 
     updatePlatesList(plates) {
+        if (!this.platesContainer) {
+            console.error('Plates container not found');
+            return;
+        }
+
         const latest = plates.slice(-5).reverse();
         this.platesContainer.innerHTML = latest.map(plate => `
             <div class="plate-entry">
@@ -64,11 +79,26 @@ class Dashboard {
     }
 
     updateChart(plates) {
+        if (!this.chart) {
+            console.error('Chart is not initialized');
+            return;
+        }
+
         const hourlyData = new Map();
+        const now = new Date();
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        // Initialize all hours with 0
+        for (let i = 0; i < 24; i++) {
+            hourlyData.set(i, 0);
+        }
 
         plates.forEach(plate => {
-            const hour = new Date(plate.timestamp).getHours();
-            hourlyData.set(hour, (hourlyData.get(hour) || 0) + 1);
+            const plateTime = new Date(plate.timestamp);
+            if (plateTime >= dayStart) {
+                const hour = plateTime.getHours();
+                hourlyData.set(hour, (hourlyData.get(hour) || 0) + 1);
+            }
         });
 
         const sortedHours = Array.from(hourlyData.keys()).sort((a, b) => a - b);
@@ -82,25 +112,12 @@ class Dashboard {
         this.fetchPlates();
         setInterval(() => this.fetchPlates(), 5000);
     }
-
-    simulateNewDetection() {
-        const mockPlate = {
-            plate_number: 'simulated',
-            confidence: Math.random() * 15 + 85,
-            timestamp: new Date().toISOString()
-        };
-
-        fetch('/api/plates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(mockPlate)
-        });
-    }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const dashboard = new Dashboard();
-    setInterval(() => dashboard.simulateNewDetection(), 10000);
+// Wait for DOM and Chart.js to load
+window.addEventListener('load', () => {
+    if (document.getElementById('detectionChart')) {
+        const dashboard = new Dashboard();
+        setInterval(() => dashboard.simulateNewDetection(), 10000);
+    }
 });
