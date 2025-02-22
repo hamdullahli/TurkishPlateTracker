@@ -1,9 +1,45 @@
 class Dashboard {
     constructor() {
         this.platesContainer = document.getElementById('latest-plates');
+        this.streamImage = document.getElementById('streamImage');
+        this.cameraSelect = document.getElementById('cameraSelect');
+        this.currentStream = null;
         this.chart = null;
+
         this.initChart();
+        this.setupCameraSelection();
         this.startDataPolling();
+    }
+
+    setupCameraSelection() {
+        this.cameraSelect.addEventListener('change', () => {
+            const cameraId = this.cameraSelect.value;
+            if (cameraId) {
+                this.startStream(cameraId);
+            } else {
+                this.stopStream();
+            }
+        });
+    }
+
+    startStream(cameraId) {
+        this.stopStream();
+        this.streamImage.src = `/api/stream/${cameraId}`;
+        this.streamImage.style.display = 'block';
+
+        // Stream hatası durumunda
+        this.streamImage.onerror = () => {
+            console.error('Stream bağlantısı başarısız');
+            this.stopStream();
+            alert('Kamera görüntüsü alınamıyor. Lütfen bağlantıyı kontrol edin.');
+        };
+    }
+
+    stopStream() {
+        if (this.streamImage) {
+            this.streamImage.src = '';
+            this.streamImage.style.display = 'none';
+        }
     }
 
     initChart() {
@@ -82,25 +118,8 @@ class Dashboard {
         this.fetchPlates();
         setInterval(() => this.fetchPlates(), 5000);
     }
-
-    simulateNewDetection() {
-        const mockPlate = {
-            plate_number: 'simulated',
-            confidence: Math.random() * 15 + 85,
-            timestamp: new Date().toISOString()
-        };
-
-        fetch('/api/plates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(mockPlate)
-        });
-    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     const dashboard = new Dashboard();
-    setInterval(() => dashboard.simulateNewDetection(), 10000);
 });
