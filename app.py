@@ -242,6 +242,23 @@ def update_authorized_plate(plate_id):
         )
         db.session.add(history)
 
+    if 'plate_number' in data:
+        # Plaka numarası benzersiz olmalı
+        existing_plate = AuthorizedPlate.query.filter_by(plate_number=data['plate_number']).first()
+        if existing_plate and existing_plate.id != plate_id:
+            return jsonify({'error': 'Bu plaka numarası zaten kullanılıyor'}), 400
+
+        old_number = plate.plate_number
+        plate.plate_number = data['plate_number']
+
+        history = AuthorizationHistory(
+            plate_number=data['plate_number'],
+            action='update',
+            description=f"Plaka numarası değiştirildi: {old_number} -> {data['plate_number']}",
+            changed_by=current_user.username
+        )
+        db.session.add(history)
+
     if 'description' in data:
         plate.description = data['description']
 
