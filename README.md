@@ -11,6 +11,7 @@ Bu proje, güvenlik ve erişim yönetimi için gelişmiş plaka tanıma sistemi 
 - Plaka geçmiş kaydı
 - Kamera ayarları ve yönetimi
 - GitHub ile otomatik senkronizasyon
+- Test değişikliği - 22 Şubat 2025
 
 ## Kurulum
 
