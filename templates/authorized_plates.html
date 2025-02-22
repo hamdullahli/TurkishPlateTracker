@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Yetkili Plakalar</h2>
+        </div>
+        <div class="col text-end">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPlateModal">
+                Yeni Plaka Ekle
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Plaka</th>
+                            <th>Açıklama</th>
+                            <th>Durum</th>
+                            <th>Son Erişim</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody id="platesList">
+                        {% for plate in plates %}
+                        <tr>
+                            <td>{{ plate.plate_number }}</td>
+                            <td>{{ plate.description }}</td>
+                            <td>
+                                <span class="badge {% if plate.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                    {{ 'Aktif' if plate.is_active else 'Pasif' }}
+                                </span>
+                            </td>
+                            <td>{{ plate.last_access|default('Hiç giriş yapmadı', true) }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="togglePlateStatus({{ plate.id }})">
+                                    {{ 'Pasif Yap' if plate.is_active else 'Aktif Yap' }}
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Yeni Plaka Ekleme Modal -->
+<div class="modal fade" id="addPlateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Yeni Yetkili Plaka Ekle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addPlateForm">
+                    <div class="mb-3">
+                        <label for="plateNumber" class="form-label">Plaka Numarası</label>
+                        <input type="text" class="form-control" id="plateNumber" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Açıklama</label>
+                        <textarea class="form-control" id="description" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="addNewPlate()">Ekle</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function addNewPlate() {
+    const plateNumber = document.getElementById('plateNumber').value;
+    const description = document.getElementById('description').value;
+
+    try {
+        const response = await fetch('/api/authorized-plates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                plate_number: plateNumber,
+                description: description
+            })
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Plaka eklenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Plaka eklenirken bir hata oluştu');
+    }
+}
+
+async function togglePlateStatus(plateId) {
+    try {
+        const response = await fetch(`/api/authorized-plates/${plateId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                is_active: document.querySelector(`[data-plate-id="${plateId}"]`).classList.contains('bg-danger')
+            })
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Plaka durumu güncellenirken bir hata oluştu');
+        }
+    } catch (error) {
+        alert('Plaka durumu güncellenirken bir hata oluştu');
+    }
+}
+</script>
+{% endblock %}

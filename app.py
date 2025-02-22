@@ -3,14 +3,27 @@ import logging
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
 import json
 from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
+class Base(DeclarativeBase):
+    pass
+
+db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+
+db.init_app(app)
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -22,9 +35,6 @@ login_manager.login_message = 'Lütfen önce giriş yapın.'
 USERS = {
     "admin": generate_password_hash("admin123")
 }
-
-# Mock plate storage
-PLATES_FILE = "plates.json"
 
 class User:
     def __init__(self, username):
@@ -73,38 +83,93 @@ def logout():
 def dashboard():
     return render_template('dashboard.html')
 
+@app.route('/authorized-plates')
+@login_required
+def authorized_plates():
+    from models import AuthorizedPlate
+    plates = AuthorizedPlate.query.all()
+    return render_template('authorized_plates.html', plates=plates)
+
+@app.route('/api/authorized-plates', methods=['GET'])
+@login_required
+def get_authorized_plates():
+    from models import AuthorizedPlate
+    plates = AuthorizedPlate.query.all()
+    return jsonify([plate.to_dict() for plate in plates])
+
+@app.route('/api/authorized-plates', methods=['POST'])
+@login_required
+def add_authorized_plate():
+    from models import AuthorizedPlate
+    data = request.get_json()
+    plate_number = data.get('plate_number')
+    description = data.get('description', '')
+
+    if not plate_number:
+        return jsonify({'error': 'Plaka numarası gerekli'}), 400
+
+    existing_plate = AuthorizedPlate.query.filter_by(plate_number=plate_number).first()
+    if existing_plate:
+        return jsonify({'error': 'Bu plaka zaten tanımlı'}), 400
+
+    new_plate = AuthorizedPlate(plate_number=plate_number, description=description)
+    db.session.add(new_plate)
+    db.session.commit()
+
+    return jsonify(new_plate.to_dict()), 201
+
+@app.route('/api/authorized-plates/<int:plate_id>', methods=['PUT'])
+@login_required
+def update_authorized_plate(plate_id):
+    from models import AuthorizedPlate
+    plate = AuthorizedPlate.query.get_or_404(plate_id)
+    data = request.get_json()
+
+    if 'is_active' in data:
+        plate.is_active = data['is_active']
+    if 'description' in data:
+        plate.description = data['description']
+
+    db.session.commit()
+    return jsonify(plate.to_dict())
+
 @app.route('/api/plates', methods=['GET'])
 @login_required
 def get_plates():
-    try:
-        with open(PLATES_FILE, 'r') as f:
-            plates = json.load(f)
-    except FileNotFoundError:
-        plates = []
-    return jsonify(plates)
+    from models import PlateRecord
+    plates = PlateRecord.query.all()
+    return jsonify([plate.to_dict() for plate in plates])
 
 @app.route('/api/plates', methods=['POST'])
 @login_required
 def add_plate():
+    from models import AuthorizedPlate, PlateRecord
     plate_number = request.json.get('plate_number')
     confidence = request.json.get('confidence', 100)
 
-    try:
-        with open(PLATES_FILE, 'r') as f:
-            plates = json.load(f)
-    except FileNotFoundError:
-        plates = []
+    # Yetkili plaka kontrolü
+    authorized_plate = AuthorizedPlate.query.filter_by(
+        plate_number=plate_number, 
+        is_active=True
+    ).first()
 
-    plates.append({
-        'plate_number': plate_number,
-        'confidence': confidence,
-        'timestamp': datetime.now().isoformat()
+    is_authorized = bool(authorized_plate)
+    if authorized_plate:
+        authorized_plate.last_access = datetime.utcnow()
+        db.session.commit()
+
+    new_plate = PlateRecord(plate_number=plate_number, confidence=confidence, is_authorized=is_authorized)
+    db.session.add(new_plate)
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'is_authorized': is_authorized
     })
 
-    with open(PLATES_FILE, 'w') as f:
-        json.dump(plates, f)
-
-    return jsonify({'status': 'success'})
+with app.app_context():
+    from models import AuthorizedPlate, PlateRecord
+    db.create_all()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
