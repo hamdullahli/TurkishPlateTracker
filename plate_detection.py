@@ -7,10 +7,6 @@ import time
 import sys
 import os
 from datetime import datetime
-from tflite_runtime.interpreter import Interpreter
-from pycoral.utils import edgetpu
-from pycoral.adapters import common
-from pycoral.adapters import detect
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +18,19 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# TPU imports with error handling
+try:
+    from tflite_runtime.interpreter import Interpreter
+    from pycoral.utils import edgetpu
+    from pycoral.adapters import common
+    from pycoral.adapters import detect
+    TPU_AVAILABLE = True
+    logger.info("TPU bağımlılıkları başarıyla yüklendi")
+except ImportError as e:
+    TPU_AVAILABLE = False
+    logger.error(f"TPU bağımlılıkları yüklenemedi: {str(e)}")
+    logger.error("Lütfen setup_tpu.sh betiğini çalıştırın")
 
 # Nesne sınıfları (COCO veri setinden)
 COCO_LABELS = {
@@ -44,6 +53,9 @@ class PlateDetector:
             self.api_url = api_url
             self.api_token = api_token
 
+            if not TPU_AVAILABLE:
+                raise ImportError("TPU bağımlılıkları eksik")
+
             # Initialize Edge TPU for vehicle detection
             logger.info("TPU modelini yükleme deneniyor...")
             model_path = os.path.join('model', 'ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite')
@@ -51,16 +63,21 @@ class PlateDetector:
             if not os.path.exists(model_path):
                 raise FileNotFoundError(f"TPU modeli bulunamadı: {model_path}")
 
-            self.interpreter = edgetpu.make_interpreter(model_path)
-            self.interpreter.allocate_tensors()
+            try:
+                self.interpreter = edgetpu.make_interpreter(model_path)
+                self.interpreter.allocate_tensors()
 
-            # Get model details
-            self.input_details = self.interpreter.get_input_details()
-            self.output_details = self.interpreter.get_output_details()
-            self.input_shape = self.input_details[0]['shape']
+                # Get model details
+                self.input_details = self.interpreter.get_input_details()
+                self.output_details = self.interpreter.get_output_details()
+                self.input_shape = self.input_details[0]['shape']
 
-            logger.info("TPU destekli plaka algılama sistemi başlatıldı")
-            logger.info(f"Model giriş boyutu: {self.input_shape}")
+                logger.info("TPU destekli plaka algılama sistemi başlatıldı")
+                logger.info(f"Model giriş boyutu: {self.input_shape}")
+
+            except Exception as tpu_error:
+                logger.error(f"TPU başlatma hatası: {str(tpu_error)}")
+                raise
 
         except Exception as e:
             logger.error(f"Başlatma hatası: {str(e)}")
@@ -101,13 +118,18 @@ class PlateDetector:
                 return []
 
             # Run inference
-            self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
-            self.interpreter.invoke()
+            try:
+                self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                self.interpreter.invoke()
 
-            # Get detection results
-            boxes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
-            classes = self.interpreter.get_tensor(self.output_details[1]['index'])[0]
-            scores = self.interpreter.get_tensor(self.output_details[2]['index'])[0]
+                # Get detection results
+                boxes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
+                classes = self.interpreter.get_tensor(self.output_details[1]['index'])[0]
+                scores = self.interpreter.get_tensor(self.output_details[2]['index'])[0]
+
+            except Exception as tpu_error:
+                logger.error(f"TPU çıkarım hatası: {str(tpu_error)}")
+                return []
 
             # Filter vehicle detections
             height, width = frame.shape[:2]
@@ -135,6 +157,82 @@ class PlateDetector:
         except Exception as e:
             logger.error(f"Araç tespiti hatası: {str(e)}")
             return []
+
+    def process_camera_feed(self, camera_id=0):
+        """
+        Process camera feed and detect plates
+        """
+        try:
+            logger.info(f"Kamera akışı başlatılıyor: {camera_id}")
+
+            # Handle RTSP URLs
+            if isinstance(camera_id, str) and camera_id.startswith('rtsp://'):
+                logger.info("RTSP bağlantısı tespit edildi")
+                cap = cv2.VideoCapture(camera_id)
+                if not cap.isOpened():
+                    raise Exception(f"RTSP bağlantısı başarısız: {camera_id}")
+            else:
+                # Try to convert to integer for regular camera
+                try:
+                    camera_id = int(camera_id)
+                except ValueError:
+                    logger.warning(f"Kamera ID'si sayıya çevrilemedi, orijinal değer kullanılıyor: {camera_id}")
+                cap = cv2.VideoCapture(camera_id)
+                if not cap.isOpened():
+                    raise Exception(f"Kamera bağlantısı başarısız: {camera_id}")
+
+            # Track last detection time for each plate
+            last_detection_time = {}
+            min_detection_interval = 5  # Minimum seconds between same plate detections
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    logger.error("Kameradan frame alınamadı")
+                    break
+
+                # Detect vehicles
+                vehicles = self.detect_vehicles(frame)
+
+                current_time = time.time()
+                for vehicle in vehicles:
+                    # Find plate candidates in vehicle region
+                    plates = self.detect_plate_in_vehicle(frame, vehicle)
+
+                    if not plates:
+                        continue
+
+                    for plate in plates:
+                        # Read plate text
+                        plate_text, confidence = self.read_plate(frame, plate)
+
+                        if plate_text and confidence > 0.6:
+                            # Check detection interval
+                            if plate_text in last_detection_time:
+                                time_since_last = current_time - last_detection_time[plate_text]
+                                if time_since_last < min_detection_interval:
+                                    continue
+
+                            logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
+                            self.send_plate_to_server(plate_text, confidence)
+                            last_detection_time[plate_text] = current_time
+
+                            # Draw detection
+                            x, y, w, h = plate['box']
+                            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                            cv2.putText(frame, plate_text, (x, y-10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                time.sleep(0.1)  # CPU kullanımını azalt
+
+        except KeyboardInterrupt:
+            logger.info("Kullanıcı tarafından durduruldu")
+        except Exception as e:
+            logger.error(f"Kamera işleme hatası: {str(e)}")
+            raise
+        finally:
+            if 'cap' in locals():
+                cap.release()
 
     def detect_plate_in_vehicle(self, frame, vehicle):
         """
@@ -211,69 +309,6 @@ class PlateDetector:
             logger.error(f"Plaka okuma hatası: {str(e)}")
             return None, 0
 
-    def process_camera_feed(self, camera_id=0):
-        """
-        Process camera feed and detect plates
-        """
-        try:
-            logger.info(f"Kamera akışı başlatılıyor: {camera_id}")
-            cap = cv2.VideoCapture(camera_id)
-
-            if not cap.isOpened():
-                raise Exception(f"Kamera bağlantısı başarısız: {camera_id}")
-
-            # Track last detection time for each plate
-            last_detection_time = {}
-            min_detection_interval = 5  # Minimum seconds between same plate detections
-
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    logger.error("Kameradan frame alınamadı")
-                    break
-
-                # Detect vehicles
-                vehicles = self.detect_vehicles(frame)
-
-                current_time = time.time()
-                for vehicle in vehicles:
-                    # Find plate candidates in vehicle region
-                    plates = self.detect_plate_in_vehicle(frame, vehicle)
-
-                    if not plates:
-                        continue
-
-                    for plate in plates:
-                        # Read plate text
-                        plate_text, confidence = self.read_plate(frame, plate)
-
-                        if plate_text and confidence > 0.6:
-                            # Check detection interval
-                            if plate_text in last_detection_time:
-                                time_since_last = current_time - last_detection_time[plate_text]
-                                if time_since_last < min_detection_interval:
-                                    continue
-
-                            logger.info(f"Plaka tespit edildi: {plate_text} (Güven: {confidence:.2f})")
-                            self.send_plate_to_server(plate_text, confidence)
-                            last_detection_time[plate_text] = current_time
-
-                            # Draw detection
-                            x, y, w, h = plate['box']
-                            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                            cv2.putText(frame, plate_text, (x, y-10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-
-                time.sleep(0.1)  # CPU kullanımını azalt
-
-        except KeyboardInterrupt:
-            logger.info("Kullanıcı tarafından durduruldu")
-        except Exception as e:
-            logger.error(f"Kamera işleme hatası: {str(e)}")
-        finally:
-            if 'cap' in locals():
-                cap.release()
-
     def send_plate_to_server(self, plate_number, confidence):
         """
         Send detected plate to the API server
@@ -281,30 +316,55 @@ class PlateDetector:
         try:
             data = {
                 "plate_number": plate_number,
-                "confidence": confidence * 100,
+                "confidence": confidence * 100,  # Convert to percentage
                 "processed_by": "tpu_detector"
             }
+
+            # Log API request
+            logger.info(f"Plaka sunucuya gönderiliyor: {plate_number} (Güven: {confidence:.2f})")
 
             response = requests.post(
                 f"{self.api_url}/api/plates",
                 json=data,
-                headers={'X-API-Token': self.api_token}
+                headers={'X-API-Token': self.api_token},
+                timeout=5  # Add timeout
             )
             response.raise_for_status()
             result = response.json()
-            logger.info(f"Plaka sunucuya gönderildi: {plate_number} ({result})")
+
+            # Log server response
+            logger.info(f"Sunucu yanıtı: {result}")
+
+            if result.get('is_authorized'):
+                logger.info(f"Plaka yetkili: {plate_number}")
+            else:
+                logger.info(f"Plaka yetkisiz: {plate_number}")
+
             return result
-        except Exception as e:
+
+        except requests.exceptions.Timeout:
+            logger.error("Sunucu yanıt vermedi (timeout)")
+            return None
+        except requests.exceptions.RequestException as e:
             logger.error(f"Sunucuya gönderme hatası: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Beklenmeyen hata: {str(e)}")
             return None
 
 def main():
     try:
         # Configuration
-        API_URL = os.environ.get("API_URL", "http://0.0.0.0:5000")
+        API_URL = os.environ.get("API_URL", "http://localhost:5000")
         API_TOKEN = os.environ.get("API_TOKEN", "test-token-123")
 
+        # Check TPU availability first
+        if not TPU_AVAILABLE:
+            logger.error("TPU bağımlılıkları eksik. Lütfen setup_tpu.sh betiğini çalıştırın")
+            sys.exit(1)
+
         # Initialize detector
+        logger.info(f"API URL: {API_URL}")
         detector = PlateDetector(API_URL, API_TOKEN)
 
         # Process video source
