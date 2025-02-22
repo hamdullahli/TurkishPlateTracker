@@ -66,8 +66,16 @@ class PlateDetector:
         x, y, w, h = roi
         plate_img = img[y:y+h, x:x+w]
 
+        # Görüntü ön işleme
+        gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5,5), 0)
+        thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
         # Use EasyOCR to read the text
-        results = self.reader.readtext(plate_img)
+        results = self.reader.readtext(thresh)
+        
+        # Debug için görüntüyü kaydet
+        cv2.imwrite('debug_plate.jpg', thresh)
 
         if not results:
             return None, 0
@@ -106,10 +114,16 @@ class PlateDetector:
         """
         Process RTSP stream and detect plates
         """
+        logger.info(f"Trying to connect to RTSP stream: {rtsp_url}")
         cap = cv2.VideoCapture(rtsp_url)
         if not cap.isOpened():
             logger.error("Error: Could not open RTSP stream.")
             return
+
+        # Set video capture properties
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FPS, 15)
 
         logger.info("Started processing RTSP stream")
 
